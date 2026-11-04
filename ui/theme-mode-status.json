@@ -1,0 +1,25 @@
+{
+ "mode": "on",
+ "defaultTheme": "",
+ "appliedTheme": null,
+ "backupExists": true,
+ "missing": [
+  "index.html 未注入任何主题"
+ ],
+ "themes": {
+  "elysia": {
+   "id": "elysia",
+   "name": "爱莉希雅粉色妖精",
+   "icon": "🌸",
+   "bundled": true,
+   "ready": false
+  },
+  "maid-atelier": {
+   "id": "maid-atelier",
+   "name": "深海女仆工坊",
+   "icon": "🎀",
+   "bundled": true,
+   "ready": false
+  }
+ }
+}

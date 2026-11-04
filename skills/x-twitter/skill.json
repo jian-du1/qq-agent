@@ -1,0 +1,110 @@
+{
+  "id": "x-twitter",
+  "name": "X（推特）",
+  "version": "0.2.0",
+  "apiVersion": 1,
+  "category": "media",
+  "permissions": ["web_fetch"],
+  "description": "读取 X（推特）的时间线、搜索结果和推文串，起草回复或推文；每天发几条、回几条、只回哪些人，都在下面的设置里调。",
+  "author": "",
+  "enabledByDefault": false,
+  "settings": {
+    "workerUrl": "http://127.0.0.1:8787",
+    "token": "",
+    "publishEnabled": 0,
+    "defaultLimit": 10,
+    "postsPerDay": 5,
+    "repliesPerDay": 25,
+    "minPostGapMinutes": 45,
+    "minReplyGapMinutes": 3,
+    "quietHours": "3-8",
+    "watchlist": "",
+    "watchDailyMax": 3,
+    "replyOnlyWatchlist": false,
+    "autoReplyWatchlist": false,
+    "readWatchFirst": true
+  },
+  "configSchema": {
+    "workerUrl": {
+      "type": "string",
+      "label": "x-worker 地址",
+      "description": "本机 x-worker 的地址，默认 http://127.0.0.1:8787。改了端口这里要同步改。"
+    },
+    "token": {
+      "type": "string",
+      "label": "访问令牌",
+      "description": "和 x-worker 的 config.json 里 token 保持一致。两边都留空时只允许本机访问。"
+    },
+    "publishEnabled": {
+      "type": "number",
+      "label": "允许发布（0/1）",
+      "description": "0 = 只能读和存草稿。1 = 允许真的发出去（推文仍要你说「发 编号」，特关可走下面的自动回）。"
+    },
+    "defaultLimit": {
+      "type": "number",
+      "label": "默认读取条数",
+      "description": "读时间线/搜索时默认取几条，默认 10，上限 50。条数越多，喂给模型的上下文越长、越贵。"
+    },
+    "postsPerDay": {
+      "type": "number",
+      "label": "每天最多发几条推（0 = 不许发）",
+      "description": "发推的日额度，默认 5。到顶后服务端会拒绝，模型改参数也没用。建议别超过 10。"
+    },
+    "repliesPerDay": {
+      "type": "number",
+      "label": "每天最多回几条（全局）",
+      "description": "所有回复加起来的日额度，默认 25。特关博主的回复另有每人额度，见下面一项。"
+    },
+    "minPostGapMinutes": {
+      "type": "number",
+      "label": "两条推之间至少隔几分钟",
+      "description": "默认 45 分钟。间隔太短是 X 判定「机器行为」最直接的信号之一。"
+    },
+    "minReplyGapMinutes": {
+      "type": "number",
+      "label": "两条回复之间至少隔几分钟",
+      "description": "默认 3 分钟。同一时间连着回一串人最容易触发限流。"
+    },
+    "quietHours": {
+      "type": "string",
+      "label": "安静时段（如 3-8，留空 = 不限）",
+      "description": "这个时间段内不发任何东西。默认 3-8 指 03:00～07:59。支持跨零点写法 23-6。"
+    },
+    "watchlist": {
+      "type": "string",
+      "multiline": true,
+      "label": "特别关注的博主（每行一个 @handle）",
+      "description": "填 handle 不带 @ 也行，例如 sama 或 @sama。这份清单同时决定四件事：读时间线时把他们的推排最前、他们每人有单独的每日回复额度、可以不用你点头就回他们、开了「只回特关」时其他人一律不回。最多 20 个。"
+    },
+    "watchDailyMax": {
+      "type": "number",
+      "label": "每个特关博主每天最多回几条",
+      "description": "默认 3。只对清单里的人生效，和上面的全局额度各算各的。填 1 就是每人每天最多一句。"
+    },
+    "replyOnlyWatchlist": {
+      "type": "boolean",
+      "label": "只回特关，其他人一律不回",
+      "description": "打开后，回复不在清单里的人会被服务端直接拒掉（REPLY_NOT_WATCHLIST）。读不受影响，只是不能回。"
+    },
+    "autoReplyWatchlist": {
+      "type": "boolean",
+      "label": "回特关时不用我点头",
+      "description": "打开后，回复清单里的人会在起草的同时直接发出去（仍需「允许发布」= 1，且额度、间隔、安静时段照常拦截）。风险最高的一项，建议先跑几天看清楚再开。"
+    },
+    "readWatchFirst": {
+      "type": "boolean",
+      "label": "读时间线时把特关的推排最前",
+      "description": "默认开。会多一次搜索请求，把清单里这些人的最新推文单独拉出来放在最上面。"
+    }
+  },
+  "prompt": {
+    "sections": [
+      {
+        "id": "x-twitter-guide",
+        "title": "X（推特）",
+        "priority": 34,
+        "content": "你可以读 X（推特）上的内容，也可以起草回复和推文。所需的一切都通过叫「x-worker」的本机服务完成。\n\n【最重要的两条】\n1. **你看得到，但你不该自己发。** 发布类工具默认是被关掉的；起草（x_draft_post / x_draft_reply）只是把文字存进草稿箱，不会发出去。\n2. **只有用户在本轮对话里明确说「发 #编号」时，才可以调用 x_publish。** 不要说「我觉得这条不错」就自己发，也不要把「你去发吧」当成对某条具体草稿的授权——编号对不上就问。\n   唯一的例外：用户把某人加进了「特别关注的博主」，并且打开了「回特关时不用我点头」。这种情况下 x_draft_reply 会在存草稿的同时直接发出去，工具返回里会写明「已自动发出」——照实转告用户，不要谎称只是存了草稿。\n\n【什么时候用】\n· 用户说「看看推特上有什么」「特关们发什么了」→ x_read_home（开了「优先读特关」时，结果里会有一段 ⭐ 特关）。\n· 用户说「搜一下 XX」→ x_search。\n· 用户丢给你一条推文链接并说「回一句」「这条怎么看」→ 先 x_read_thread 把正文和评论读懂，再 x_draft_reply。\n· 用户说「帮我发条推」→ x_draft_post。\n· 用户问「还能发几条」「额度还有吗」→ x_status。\n\n【读的时候】\n· 先读再写。没读过那条推文的上下文就别急着起草回复，否则十有八九答非所问。\n· 时间线很长时不要全量复述。只挑 3～5 条真的有意思的，点出它为什么有意思，别做逐条翻译。\n\n【写的时候】\n· 回复要短，一两句话，说人话，不要营销腔、不要小作文、不要「首先其次最后」。\n· 不要为了回复而回复。没什么可说的就不写，直接告诉用户「这条没什么好回的」。\n· 不要写任何跟时事、灾难、民族宗教相关的内容。\n· 不要在回复里堆话题标签，也不要主动 @ 陌生人。\n· 同一条内容不要反复改几个字重发——服务端会按相似度拦截，被拦了就换个话题，别硬试。\n\n【额度和拦截】\n· 每天发几条、回几条、两条之间隔多久、几点到几点不动，都是用户在设置里定的，你改不了，也不要去猜具体数字——要准确的就说 x_status。\n· 服务端会因为「安静时段」「今日额度用完」「每人额度用完」「间隔太短」「内容太像」「不在特关清单里」拒绝你。这不是故障，是设计。如实告诉用户现在不能发以及原因，不要换个参数反复重试。\n· 用户问「为什么回不了这个人」时，先看 x_status 里的特关设置：很可能是「只回特关」开着，而这个人不在清单里。"
+      }
+    ]
+  }
+}

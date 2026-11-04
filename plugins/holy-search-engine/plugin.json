@@ -1,0 +1,53 @@
+{
+  "id": "holy-search-engine",
+  "name": "神圣搜索引擎",
+  "version": "1.1.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "修 Bing/多数搜索引擎对中文「X 是什么梗」这类长查询会退化成「只看头一个字」的问题：检测搜索结果是查字/跑偏（如『性（汉语文字）_百度百科』『哈尔滨工业大学招生』『哈（汉语汉字）_百度百科』），就用剥掉疑问尾巴的关键词重搜一次，并把结果换成带真实 URL 的那一份。实测 10 个梗词：答案跑偏率 90% → 20%（修好 7 个、弄坏 0 个）。对模型透明，不改配置、不改核心代码。",
+  "author": "CacheHitViewer",
+  "enabledByDefault": true,
+  "capabilities": ["status.holy-search-engine"],
+  "permissions": ["web_fetch"],
+  "requires": [],
+  "settings": {
+    "enabled": true,
+    "autoRefetch": true,
+    "addSiteHint": true,
+    "maxResults": 6,
+    "searchUrl": "",
+    "logDetail": false
+  },
+  "configSchema": {
+    "enabled": {
+      "type": "boolean",
+      "label": "启用神圣搜索引擎",
+      "description": "总开关。关掉后完全不介入搜索。"
+    },
+    "autoRefetch": {
+      "type": "boolean",
+      "label": "自动用干净关键词重搜",
+      "description": "检测到搜索结果像「查字/跑偏」时，剥掉「是什么梗」这类尾巴重搜一次，并把结果换掉。关掉则只在结果里加提示，由她自己决定。"
+    },
+    "addSiteHint": {
+      "type": "boolean",
+      "label": "补一个百科/wiki 站点提示",
+      "description": "重搜时额外试一次『site:zh.moegirl.org.cn 关键词』，命中萌娘百科词条优先采用（角色/梗类问题最准）。"
+    },
+    "maxResults": {
+      "type": "number",
+      "label": "结果条数",
+      "description": "重搜时最多取几条，默认 6。"
+    },
+    "searchUrl": {
+      "type": "string",
+      "label": "搜索接口地址（留空 = 跟随核心配置）",
+      "description": "默认用核心 webSearch.searchUrl（出厂是 https://cn.bing.com/search）。填了则以这里为准。"
+    },
+    "logDetail": {
+      "type": "boolean",
+      "label": "输出详细日志",
+      "description": "把每次判定与重搜过程写进日志，排查用。"
+    }
+  }
+}

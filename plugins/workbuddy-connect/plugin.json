@@ -1,0 +1,104 @@
+{
+  "id": "workbuddy-connect",
+  "name": "WorkBuddy 额度接入",
+  "version": "1.2.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "把机器人的「大脑」换成 WorkBuddy（腾讯 CodeBuddy / workbuddy.ai）的模型额度：复用本机已登录的 WorkBuddy 账号，不再走 DeepSeek 官方 API，也不额外花 DeepSeek 的钱。插件在本地起一个极小的中转服务，QQ Agent 的每一次模型请求都被它接住、按 WorkBuddy 的网关规则改写（强制流式、修正 tool_choice、必要时加中性开头躲渠道校验），再把流式结果拼回普通 JSON 交还给 QQ Agent —— 工具调用、思考内容、token 统计都原样保留。账号登录凭据只读本机 WorkBuddy 的登录文件，不复制不外传；快过期时自动用 refreshToken 续期。国内版额度用完、被限流或登录失效时，如果本机也登录了国际版，会自动换国际版账号重试一次；再失败才回退官方 API。热重载（装扩展/点刷新）不会再把接管弄丢：中转服务被复用而不是重启，另有 5 秒自检看门狗自动重建，所有失败都会写进应用日志。想临时切回官方 API，只要把「接管模型调用」关掉，或直接停用本插件。",
+  "author": "本机定制（移植自 dsh-connect-workbuddy v5.6.2 by dingminhua）",
+  "entry": "index.js",
+  "permissions": [],
+  "enabledByDefault": true,
+  "capabilities": [
+    "llm.endpoint-pick"
+  ],
+  "requires": [],
+  "settings": {
+    "enabled": true,
+    "takeover": true,
+    "region": "auto",
+    "model": "deepseek-v4.1-flash",
+    "port": 39321,
+    "fallbackToNative": true,
+    "regionFallback": true,
+    "requestTimeoutSec": 180,
+    "queueRetries": 1,
+    "maxTokensCap": 0,
+    "includeReasoning": true,
+    "debugLog": false
+  },
+  "configSchema": {
+    "takeover": {
+      "type": "boolean",
+      "label": "接管机器人的模型调用",
+      "description": "打开后，机器人所有对话都走 WorkBuddy 额度（换掉 DeepSeek）。关掉它但保留插件，等于「随时可切回官方 API」—— 机器人立刻用回配置页里填的 DeepSeek 地址和 Key，不用卸载。"
+    },
+    "region": {
+      "type": "enum",
+      "values": [
+        "auto",
+        "cn",
+        "global"
+      ],
+      "label": "用哪个 WorkBuddy 版本",
+      "description": "auto = 自动：本机哪个区域登录了用哪个（优先国内版），失败时还能换另一区重试 —— 只要两个区域中至少一个登录过就行。cn = 国内版 copilot.tencent.com：需要本机登录过国内版 WorkBuddy。global = 国际版 workbuddy.ai：需要本机登录过国际版 WorkBuddy。两个区域的账号与额度互不相通，选了一个本机没登录的区域会提示「没有找到登录凭据」，此时先改回 auto 或去 WorkBuddy 客户端登录。"
+    },
+    "model": {
+      "type": "string",
+      "label": "用哪个模型",
+      "description": "填 WorkBuddy 的模型 id，默认 deepseek-v4.1-flash（便宜、支持工具调用、100 万上下文）。其它可用值可以问机器人「workbuddy 有哪些模型」，或看插件目录下 README 里的清单。填错会回落到默认模型并在日志里提示。"
+    },
+    "port": {
+      "type": "number",
+      "label": "本地中转端口",
+      "description": "插件只监听 127.0.0.1，外网访问不到。默认 39321。只有端口被别的程序占用时才需要改；改完插件会自己重启中转服务，无需重启 QQ Agent。",
+      "min": 1024,
+      "max": 65535,
+      "step": 1
+    },
+    "fallbackToNative": {
+      "type": "boolean",
+      "label": "WorkBuddy 失败时回退官方 API",
+      "description": "建议开着：WorkBuddy 偶尔排队、限流、登录过期时，这一条请求自动改用 QQ Agent 里配置的 DeepSeek 官方 API 发出去，机器人照样回话（代价是这一次走 DeepSeek 的余额）。关掉则失败就直接报错给机器人，你会看到「模型请求失败」而不是答非所问。"
+    },
+    "regionFallback": {
+      "type": "boolean",
+      "label": "国内版失败时自动换国际版账号",
+      "description": "默认开着，且只在「用哪个 WorkBuddy 版本 = auto」时生效（显式选了国内版或国际版就严格按你选的来）。国内版额度用完、被限流或登录失效时，同一个请求自动改用本机登录的国际版账号再发一次，成功就当你没换过；两区都失败才走「回退官方 API」。"
+    },
+    "requestTimeoutSec": {
+      "type": "number",
+      "label": "单次请求超时（秒）",
+      "description": "默认 180 秒。长上下文或强推理模型可能想得久一点；超过这个时间就断开并按失败处理。",
+      "min": 20,
+      "max": 600,
+      "step": 10
+    },
+    "queueRetries": {
+      "type": "number",
+      "label": "排队时自动重试几次",
+      "description": "WorkBuddy 在高峰期会让请求排队（业务码 6020/6021/6022）。默认自动等 4 秒再试 1 次，基本不用你管；嫌慢可以填 0。",
+      "min": 0,
+      "max": 5,
+      "step": 1
+    },
+    "maxTokensCap": {
+      "type": "number",
+      "label": "单次回复 token 上限（0=不限制）",
+      "description": "给上游输出长度加一个硬上限，防止失控长回复烧额度。默认 0 表示不干预，沿用机器人自己的设置。",
+      "min": 0,
+      "max": 128000,
+      "step": 1000
+    },
+    "includeReasoning": {
+      "type": "boolean",
+      "label": "保留思考内容",
+      "description": "开着时把模型的思考过程（reasoning_content）一起交回给 QQ Agent，配合机器人的「显示思考」开关能看到它在想什么。关掉能省一点上下文，但思考模型的表现通常更好。"
+    },
+    "debugLog": {
+      "type": "boolean",
+      "label": "记录详细诊断日志",
+      "description": "排查问题时打开：会把每次请求的模型、耗时、上游返回码、是否回退写进日志（不会记录对话内容和密钥）。平时关着就行。"
+    }
+  }
+}

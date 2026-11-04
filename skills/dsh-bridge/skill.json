@@ -1,0 +1,138 @@
+{
+  "id": "dsh-bridge",
+  "name": "DSH 深度外援",
+  "version": "1.3.3",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "把需要动脑子、查资料、写代码的活派给本机的 DeepSeek Harness（DSH）无头 agent 干：干活期间实时播报进度、可以拍下这台电脑的屏幕发到会话里、遇到选择时给出编号选项让主人挑，最后把它的回答带回群里并保持多轮上下文。",
+  "author": "QQ Agent 自动生成",
+  "enabledByDefault": true,
+  "settings": {
+    "dshDir": "D:\\dsh",
+    "profile": "headless",
+    "timeoutMs": 180000,
+    "maxContextChars": 6000,
+    "maxReplyChars": 4000,
+    "workspaceDir": "",
+    "ownerIds": "3421632653",
+    "allowFromAnyone": false,
+    "triggerWords": "dsh,问dsh,外援",
+    "replyPrefix": "【DSH】",
+    "liveProgress": true,
+    "progressIntervalMs": 8000,
+    "progressMax": 10,
+    "screenShots": true,
+    "shotStyle": "session",
+    "cardLines": 22,
+    "shotIntervalMs": 25000,
+    "shotMax": 8,
+    "shotMaxWidth": 1600
+  },
+  "configSchema": {
+    "dshDir": {
+      "type": "string",
+      "label": "DSH 安装目录",
+      "description": "DeepSeek Harness 的安装目录，默认 D:\\dsh。里面应该有「DeepSeek Harness.exe」和 resources 子目录；换了安装位置时才需要改。"
+    },
+    "profile": {
+      "type": "string",
+      "label": "DSH 配置档（profile）",
+      "description": "无头调用使用的 profile 名，默认为 headless（DSH 官方的「跑一个任务就退出」档）。除非你清楚自己在做什么，否则别改。"
+    },
+    "timeoutMs": {
+      "type": "number",
+      "label": "单次最长等待（毫秒）",
+      "description": "一次 DSH 任务最多等多久，默认 180000（3 分钟）。任务较重（写代码、查很多东西）时可以调大。"
+    },
+    "maxContextChars": {
+      "type": "number",
+      "label": "随任务带给 DSH 的聊天上下文上限（字符）",
+      "description": "每次派活时把群里最近的对话一起带过去，方便 DSH 理解「它/这个」指的是什么。默认 6000 字符，0 表示不带上下文。"
+    },
+    "maxReplyChars": {
+      "type": "number",
+      "label": "回群消息长度上限（字符）",
+      "description": "DSH 的回答太长时截断到这么多字符再发回群里，默认 4000。"
+    },
+    "workspaceDir": {
+      "type": "string",
+      "label": "DSH 的工作目录",
+      "description": "留空 = 自动使用 QQ Agent 的 data 目录下一个专用文件夹（推荐，不会误碰你其它文件）。填了别的路径，DSH 就会在那里读写文件。注意：DSH 需要给这个目录写一条权限规则，技能会自动为你（当前用户）补上「完全控制」；万一补不上（比如目录被系统策略锁住），它会自动换到 C:\\Users\\<你的用户名>\\dsh-bridge-workspace 重跑，并在会话里告诉主人。"
+    },
+    "ownerIds": {
+      "type": "string",
+      "label": "主人 QQ 号（谁能动用本机外援）",
+      "description": "只有这些 QQ 号（英文逗号分隔）能让机器人把「看目录、读文件、跑命令、写脚本」这类本机活派给 DSH，也才能拍屏幕。默认是你自己的号 3421632653；要给别人加，就把他的 QQ 号也填进来。清空 = 谁都不授权（最保守）。"
+    },
+    "allowFromAnyone": {
+      "type": "boolean",
+      "label": "允许群友也派活（有风险）",
+      "description": "打开后，群里任何人都能让机器人动用 DSH —— 包括查看你这台电脑上的文件。默认关闭。注意：屏幕照片始终只发给主人，不受这项影响。"
+    },
+    "triggerWords": {
+      "type": "string",
+      "label": "直达关键词",
+      "description": "消息里出现这些词（英文逗号分隔）就提示机器人把活派给 DSH。默认：dsh、问dsh、外援。留空 = 用这套默认词。主人说话时不需要关键词也会被授权。"
+    },
+    "replyPrefix": {
+      "type": "string",
+      "label": "回复前缀",
+      "description": "DSH 的回答发回群时加在前面的标记，默认【DSH】。不想要前缀就清空。"
+    },
+    "liveProgress": {
+      "type": "boolean",
+      "label": "干活时实时播报进度",
+      "description": "打开后，DSH 干活期间机器人会往会话里发「开始干活了 / 第 N 步在跑命令 / 还在干」这类短消息，不用干等。默认打开；嫌吵可以关掉。"
+    },
+    "progressIntervalMs": {
+      "type": "number",
+      "label": "进度消息间隔（毫秒）",
+      "description": "两条进度之间至少隔多久，默认 8000（8 秒），最快 2000。间隔太短会被 QQ 的发言频率限制拦下。"
+    },
+    "progressMax": {
+      "type": "number",
+      "label": "单次任务最多几条进度",
+      "description": "默认 10 条；0 = 不发进度（等同于关掉实时播报）。长任务想看得更细就调大。"
+    },
+    "screenShots": {
+      "type": "boolean",
+      "label": "干活时给你发图（会话快照 / 屏幕照）",
+      "description": "打开后：长任务进行中每隔一段时间自动发一张图，任务结束时再补一张带最终答复的；你自己也可以随时让机器人「拍张屏幕给我」或「把刚才那次的过程发我」。只发给主人，群友拿不到。默认打开。"
+    },
+    "shotStyle": {
+      "type": "string",
+      "label": "自动发的是哪种图",
+      "description": "session（默认）= 这次 DSH 任务的过程快照图（由技能把执行过程画成图，内容一定对得上你问的那件事）；desktop = 真实截屏（看电脑实际画面，但 DSH 无头运行没有窗口，拍不到你问的那个会话）。填 desktop 才拍真屏幕，其它值一律按 session 处理。"
+    },
+    "cardLines": {
+      "type": "number",
+      "label": "快照图里显示多少行过程",
+      "description": "会话快照图里显示最近多少行执行过程，默认 22，范围 6-60。"
+    },
+    "shotIntervalMs": {
+      "type": "number",
+      "label": "自动拍屏间隔（毫秒）",
+      "description": "长任务期间每隔多久自动拍一张，默认 25000（25 秒），最快 5000。"
+    },
+    "shotMax": {
+      "type": "number",
+      "label": "单次任务最多几张屏幕照片",
+      "description": "默认 8 张，0 = 不自动拍（但你手动喊「拍一张」仍然可以拍，除非上面那个总开关也关掉）。"
+    },
+    "shotMaxWidth": {
+      "type": "number",
+      "label": "屏幕照片最大宽度（像素）",
+      "description": "屏幕太宽时等比缩小到这么宽再发，默认 1600。调小可以省流量、发得更快。"
+    }
+  },
+  "prompt": {
+    "sections": [
+      {
+        "id": "dsh-bridge-note",
+        "title": "DSH 深度外援",
+        "priority": 40,
+        "content": "本机装了一个更强的智能体 DSH（DeepSeek Harness），你有两个工具可用：\n- dsh-bridge__dsh_agent：把任务派给它 —— 它会真的在这台电脑上读文件、看目录、跑命令、写代码，然后把最终结果交回来。它干活期间会自己往会话里播报进度，你不用替它报。\n- dsh-bridge__screen_shot：拍一张照片发到当前会话（只对主人有效）。默认拍这台电脑此刻的真实屏幕；主人问「刚才那件事干到哪儿了／把过程发我」时传 target=\"session\"，会画一张这次任务的过程快照图（无头 DSH 没有窗口，那种图是画出来的，内容一定对得上他问的那件事）。\n【谁在说话很关键】\n- 说话的是主人（管理员本人；系统会在消息末尾用【主人授权…】明确告诉你）时：他让你「看目录／读文件／查本机／跑命令／写脚本／截屏看看我屏幕」，就直接调用对应工具，不要回「我没有本地工具」「这个需要管理员在管理端操作」——那是给群友的规矩。他电脑上的路径、目录、文件内容、命令输出，都可以如实告诉他。\n- 说话的不是主人时：可以用 dsh-bridge__dsh_agent 做不碰本机的活（查资料、写代码、深度分析）；但要查看或修改这台电脑上的文件、目录，或跑本机命令、截屏，仍然礼貌拒绝并提示需要管理员在管理端操作。\n【什么时候值得用】明确说「问 DSH」「让 DSH 看看」「深度分析一下」，或问题需要写代码、多步排查、查本机情况、看屏幕。普通闲聊、情绪陪伴不要用 —— 又慢又费额度。\n【怎么派活】把任务写成一件独立、完整的事（目标、约束、期望的输出形式都写上），它拿不到你和群友的聊天记录。它返回的是最终结论，你可以用自己的口吻转述，但不要改写它的技术结论。\n【编号选项】如果 DSH 需要主人做决定，它会返回「[[选项]] 甲 | 乙 | 丙」这种标记，技能会自动把它变成带编号的选择题发出去；主人回复「2」这类数字后，系统会告诉你他选了哪一项，这时你要直接调用 dsh-bridge__dsh_agent，把「我选择第 2 项：乙」当作任务派出去，不要再自己列一遍选项、也不要自己拿主意。\n【主人喊停】主人说「停」「别干了」「取消」这类话时，技能自己会把正在跑的 DSH 任务掐掉（你不需要、也不可能在中途接管它）；你只要用一句话回「好，停了」就行，不要重新派活。\n【过程图与屏幕照】长任务进行中技能会自己往会话里发「这次任务的过程快照图」（不是截屏，是画出来的），任务结束时再补一张带最终答复的；主人说「拍张屏幕照」时才用 dsh-bridge__screen_shot 拍真实屏幕。这两件事都不用你在回复里描述画面。"
+      }
+    ]
+  }
+}

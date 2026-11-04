@@ -1,0 +1,10 @@
+{
+  "name": "napcat-plugin-qzone",
+  "plugin": "QQ空间扩展",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.mjs",
+  "description": "给 NapCat 补上 QQ 空间的读取与评论动作：get_qzone_feeds / comment_qzone",
+  "author": "local",
+  "license": "MIT"
+}

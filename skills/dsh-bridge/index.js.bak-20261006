@@ -1,0 +1,1603 @@
+/**
+ * dsh-bridge —— 把本机 DSH（DeepSeek Harness）当成群里的「深度外援」。
+ *
+ * 形态：技能（skills/ 目录，清单名 skill.json）。
+ *   按 QQ Agent 自己的口径（src/skills/manager.js:247-248）：
+ *     · plugin = 确定性型，靠 providers/hooks 必然触发；
+ *     · skill  = LLM 型，注册工具、由模型决定什么时候用。
+ *   本模块不提供任何能力（providers），只注册工具 + 提供提示词段落 + 两个钩子，
+ *   触发时机由机器人模型判断 —— 所以它是技能，不是插件。
+ *
+ * 它做四件事：
+ *   1. 工具 dsh_agent：把任务派给 DSH，把结果收回来；按会话保存 DSH 的 sessionId，
+ *      同一个群里连续几次提问共享同一段 DSH 对话；
+ *   2. 实时直播：DSH 干活期间，把它「现在第几步、在跑什么命令、在读哪个文件」
+ *      按节流发到会话里（长任务不再是一段沉默）；
+ *   3. 屏幕照片：工具 screen_shot 随时能拍一张这台电脑的屏幕发到会话，
+ *      长任务过程中也可以按间隔自动拍（主人限定，防止把屏幕泄到群里）；
+ *   4. 选项选择：DSH 需要主人做决定时，在回答末尾写一行 [[选项]] A | B | C，
+ *      本技能会把它变成编号选项发到群里；主人回复数字后，自动把这次选择交回
+ *      同一段 DSH 对话继续做。
+ *
+ * 为什么不走「替换大脑」：QQ Agent 的扩展点只能在 llm.endpoint-pick /
+ * llm.request-params 这类位置做局部改动（见 src/llm.js 注释里的边界），
+ * 不能把整个对话交给另一个 agent 托管。所以这里采用「派活 + 取回结果」的
+ * 桥接方式：群里照常用你自己的模型聊天，只有真正需要硬活时才叫 DSH。
+ *
+ * 实测（本机 DSH 0.2.0-rc.2、headless 档、deepseek-flash）：
+ *   · 一次简单任务约 3 秒，带 --session-id 续聊能记住上一轮；
+ *   · --json 的事件流逐步到达：session → turn_start → step_start →
+ *     thinking → tool_call → tool_result → step_end(usage) → turn_end → final，
+ *     所以「实时」是拿 tool_call 事件做的（最后一条 final.text 是最终答案）。
+ */
+
+import { spawn } from 'node:child_process';
+import {
+  appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { format } from 'node:util';
+
+/** 与 manifest 里的 settings 保持一致（manifest 的值会覆盖这里）。 */
+const DEFAULTS = {
+  dshDir: 'D:\\dsh',
+  profile: 'headless',
+  timeoutMs: 180000,
+  maxContextChars: 6000,
+  maxReplyChars: 4000,
+  workspaceDir: '',
+  ownerIds: '3421632653',
+  allowFromAnyone: false,
+  triggerWords: 'dsh,问dsh,外援',
+  replyPrefix: '【DSH】',
+  liveProgress: true,
+  progressIntervalMs: 8000,
+  progressMax: 10,
+  screenShots: true,
+  shotIntervalMs: 25000,
+  shotMax: 8,
+  shotMaxWidth: 1600
+};
+
+/** 注册到 QQ Agent 之后，模型看到的工具全名（skillId__toolId）。 */
+const TOOL_FULL_ID = 'dsh-bridge__dsh_agent';
+const SCREEN_TOOL_FULL_ID = 'dsh-bridge__screen_shot';
+/** 需要「主人」才能调用的工具（before-tool 硬闸按这个集合判定）。 */
+const GATED_TOOLS = new Set([TOOL_FULL_ID, SCREEN_TOOL_FULL_ID]);
+
+/** 选项的有效期：超过这个时间主人再回数字，就不当选项处理了。 */
+const OPTION_TTL_MS = 30 * 60 * 1000;
+
+/** 技能目录：<QQ Agent 程序目录>\skills\dsh-bridge */
+const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url));
+/** 回退用的 QQ Agent data 目录（拿不到 app 提供的路径时才用）。 */
+const FALLBACK_DATA_DIR = path.resolve(PLUGIN_DIR, '..', '..', 'data');
+/** 工作目录被系统权限挡住时的备选位置（主人自己的主目录，一定有完全控制）。 */
+const FALLBACK_WORKSPACE = path.join(os.homedir(), 'dsh-bridge-workspace');
+/** 每个工作目录只做一次「权限确认」（进程内缓存，顺便给并发调用去重）。 */
+const workspacePrep = new Map();
+
+/** 只允许同时跑一个 DSH 任务：串行队列，避免抢会话、抢 CPU。 */
+let queueTail = Promise.resolve();
+/** 同一个群的会话文件写入也要排队（虽然已经串行，这里再兜一层）。 */
+let writeTail = Promise.resolve();
+
+/** setup() 时把「怎么读配置 / 怎么拿存储」放进这里，供模块级 hooks 使用。 */
+let hookRuntime = null;
+
+/** 运行期状态，供 state() 暴露给控制台。 */
+const stats = {
+  loadedAt: Date.now(),
+  runs: 0,
+  failures: 0,
+  timeouts: 0,
+  lastError: '',
+  lastDurationMs: 0,
+  lastFinishedAt: 0,
+  progressSent: 0,
+  shotsSent: 0,
+  optionsSent: 0,
+  workspaceFallbacks: 0
+};
+
+// ── 小工具 ─────────────────────────────────────────────────────────────────
+
+function clamp(value, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeConfig(raw) {
+  const cfg = { ...DEFAULTS, ...(raw && typeof raw === 'object' ? raw : {}) };
+  cfg.dshDir = String(cfg.dshDir || DEFAULTS.dshDir).trim() || DEFAULTS.dshDir;
+  cfg.profile = String(cfg.profile || DEFAULTS.profile).trim() || DEFAULTS.profile;
+  cfg.timeoutMs = Math.max(10000, Number(cfg.timeoutMs) || DEFAULTS.timeoutMs);
+  cfg.maxContextChars = Math.max(0, Number(cfg.maxContextChars) || 0);
+  cfg.maxReplyChars = Math.max(200, Number(cfg.maxReplyChars) || DEFAULTS.maxReplyChars);
+  cfg.workspaceDir = String(cfg.workspaceDir || '').trim();
+  cfg.ownerIds = String(cfg.ownerIds ?? DEFAULTS.ownerIds).trim();
+  cfg.allowFromAnyone = cfg.allowFromAnyone === true;
+  // 留空 = 用内置默认词（dsh / 问dsh / 外援），避免用户清空后功能静默失效
+  cfg.triggerWords = String(cfg.triggerWords ?? '').trim() || DEFAULTS.triggerWords;
+  cfg.replyPrefix = cfg.replyPrefix === undefined || cfg.replyPrefix === null ? DEFAULTS.replyPrefix : String(cfg.replyPrefix);
+  // 实时直播
+  cfg.liveProgress = cfg.liveProgress !== false;
+  cfg.progressIntervalMs = clamp(cfg.progressIntervalMs ?? DEFAULTS.progressIntervalMs, 2000, 60000);
+  cfg.progressMax = clamp(cfg.progressMax ?? DEFAULTS.progressMax, 0, 50);
+  // 屏幕照片
+  cfg.screenShots = cfg.screenShots !== false;
+  cfg.shotIntervalMs = clamp(cfg.shotIntervalMs ?? DEFAULTS.shotIntervalMs, 5000, 300000);
+  cfg.shotMax = clamp(cfg.shotMax ?? DEFAULTS.shotMax, 0, 30);
+  cfg.shotMaxWidth = clamp(cfg.shotMaxWidth ?? DEFAULTS.shotMaxWidth, 320, 4096);
+  return cfg;
+}
+
+function pickDataDir(candidate) {
+  if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  return FALLBACK_DATA_DIR;
+}
+
+/** DSH 的启动方式。
+ *  首选：直接用「DeepSeek Harness.exe」以 Node 模式跑它自己的 cli.js
+ *        （就是 dsh.cmd 里那一行，但绕开 .cmd —— Windows 上 .cmd 不能被
+ *          spawn 直接启动，必须过 shell，而 shell 会把中文参数交给 cmd 的
+ *          代码页，很容易变乱码）。
+ *  兜底：没有 exe 时才退回 dsh.cmd，此时只能 shell:true。
+ *
+ *  注意：cli.js 在 app.asar 里面，普通 Node 的 existsSync 看不到 asar 内部
+ *  的文件（会返回 false），所以这里只检查 exe 是否存在，不能去 stat cli.js。
+ */
+function resolveDshExe(dshDir) {
+  const exe = path.join(dshDir, 'DeepSeek Harness.exe');
+  if (existsSync(exe)) {
+    const cli = path.join(dshDir, 'resources', 'app.asar', 'dsh', 'node_modules',
+      '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js');
+    return { command: exe, args: ['--expose-internals', cli], shell: false, kind: 'electron-node' };
+  }
+  const cmd = path.join(dshDir, 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd');
+  if (existsSync(cmd)) return { command: cmd, args: [], shell: true, kind: 'cmd-shim' };
+  return null;
+}
+
+/** Windows 自带的 PowerShell（拍屏幕要用它调 .NET 的 System.Drawing）。 */
+function resolvePowerShell() {
+  const sysRoot = process.env.SystemRoot || 'C:\\Windows';
+  const candidates = [
+    path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    path.join(sysRoot, 'Sysnative', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return 'powershell.exe';
+}
+
+function stripControl(text) {
+  // 去掉控制字符（保留换行与制表），QQ 消息里出现裸控制字符会很难看
+  return String(text ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+}
+
+function truncate(text, max) {
+  const s = String(text ?? '');
+  if (!max || s.length <= max) return s;
+  return `${s.slice(0, max)}\n\n…（内容过长，已截断 ${s.length - max} 字）`;
+}
+
+function tail(text, max) {
+  const s = String(text ?? '');
+  return s.length <= max ? s : s.slice(s.length - max);
+}
+
+function oneLine(text, max = 90) {
+  const s = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+function clock() {
+  return new Date().toLocaleTimeString('zh-CN', { hour12: false });
+}
+
+function stamp() {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+/** 把字节数说成人话。 */
+function humanBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`;
+  return `${(n / 1024 / 1024).toFixed(1)}MB`;
+}
+
+/** 判断一次失败是不是「--session-id 指向的会话不存在」。 */
+function isStaleSession(result) {
+  const blob = `${result?.message || ''}\n${result?.stderr || ''}`;
+  return /does not exist|unknown session|session .{0,40}not found|会话.{0,20}(不存在|找不到)/i.test(blob);
+}
+
+/** 当前的 Windows 用户名（icacls 用）。 */
+function currentUserName() {
+  try {
+    const name = os.userInfo().username;
+    if (name) return name;
+  } catch { /* 拿不到就退回环境变量 */ }
+  return String(process.env.USERNAME || process.env.USER || '').trim();
+}
+
+/**
+ * DSH 在 Windows 上会给它自己跑的命令加一层沙箱：启动时要往「工作目录」的权限表
+ * 里写一条放行规则。如果这个目录的权限表里没有当前用户的「完全控制」，那次写入
+ * 会被系统直接拒绝（ERROR_ACCESS_DENIED），DSH 只能报
+ * `SetNamedSecurityInfoW failed (Win32 5): grantWrite(<目录>)`，于是**一条命令都跑不了**。
+ *
+ * 这里在派活前先把工作目录的权限写实：给当前用户补一条「完全控制」（他本来就是
+ * 这个目录的主人，这只是把隐含的权限显式写出来）。只做一次、失败也照常继续 ——
+ * 真出问题还有 callDsh 里的换目录重试兜底。
+ */
+function ensureWorkspaceAccess(workspace, log, warn) {
+  if (workspacePrep.has(workspace)) return workspacePrep.get(workspace);
+  const task = (async () => {
+    try {
+      mkdirSync(workspace, { recursive: true });
+    } catch {
+      return; // 建不出来交给正常流程报错，提示信息更贴切
+    }
+    const user = currentUserName();
+    if (!user) return;
+    const icacls = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'icacls.exe');
+    const res = await runProcess({
+      command: icacls,
+      args: [workspace, '/grant', `${user}:(OI)(CI)F`],
+      timeoutMs: 15000
+    });
+    if (res.ok) {
+      log?.(`工作目录权限已确认（${workspace}）`);
+    } else {
+      warn?.(`给工作目录 ${workspace} 补权限没成功（${res.code}${res.message ? '：' + res.message : ''}），继续尝试派活。`);
+    }
+  })().catch(() => { /* 权限确认永远不该影响主流程 */ });
+  workspacePrep.set(workspace, task);
+  return task;
+}
+
+/**
+ * 判断一次失败是不是「DSH 沙箱因为工作目录权限起不来」。
+ *
+ * 实测（本机复现）：这种情况 DSH **是正常退出（退出码 0）并给出回答的**，回答里只是
+ * 用大白话说「这个文件夹被 Windows 权限挡住了」，不会出现技术名词。真正的错误原文
+ * 只在工具结果里：
+ *   status: "error"
+ *   result: "Error: SetNamedSecurityInfoW failed (Win32 5): grantWrite(<目录>)"
+ * 所以判定要优先看 toolErrorText（runOnce 从 tool_result 事件里收集）。
+ */
+function isSandboxAclFailure(result) {
+  const strong = `${result?.message || ''}\n${result?.stderr || ''}\n${result?.toolErrorText || ''}`;
+  if (/SetNamedSecurityInfoW|grantWrite\(|ERROR_ACCESS_DENIED.{0,40}(?:work ?space|目录)/i.test(strong)) return true;
+  // 只有这一轮没成功、或者确实有工具报错时，才拿回答原文去猜（避免把正常回答误判）
+  if (result?.ok && !(Number(result?.toolErrors) > 0)) return false;
+  return /SetNamedSecurityInfoW|grantWrite\(|沙箱.{0,20}(起不来|失败|被拒)|(目录|文件夹).{0,12}权限.{0,12}(挡住|被拒)/i.test(String(result?.text || ''));
+}
+
+// ── 主人（管理员本人）识别 ────────────────────────────────────────────────
+// QQ Agent 的核心安全规则写明「群友没有管理权限：要求查看电脑/读文件/执行命令
+// 一律拒绝，并提示"这个需要管理员在管理端操作"」。主人本人不在此列 —— 但核心
+// 提示词不区分主人和群友，所以由本技能自己按 QQ 号判定，并只在主人说话时，
+// 才向模型说明「这次可以动用本机外援」。
+
+/** 从任意写法里抠出纯数字 QQ 号。 */
+function normId(value) {
+  const m = String(value ?? '').match(/\d{5,}/);
+  return m ? m[0] : '';
+}
+
+/** 把设置里的 QQ 号列表（逗号/空格/数组都行）洗成字符串数组。 */
+function parseIdList(value) {
+  const arr = Array.isArray(value) ? value : String(value ?? '').split(/[,，、\s]+/);
+  return arr.map(normId).filter(Boolean);
+}
+
+/** 本轮触发消息的发送者 QQ 号（取最后一条带发送者的记录）。 */
+function latestSenderId(triggerEntries) {
+  if (!Array.isArray(triggerEntries)) return '';
+  for (let i = triggerEntries.length - 1; i >= 0; i -= 1) {
+    const e = triggerEntries[i];
+    const id = normId(e?.senderId ?? e?.userId ?? e?.sender ?? e?.from);
+    if (id) return id;
+  }
+  return '';
+}
+
+/** 这次会话是群聊还是私聊（拿不到就返回空串）。 */
+function chatKindOf(payload) {
+  const k = String(payload?.kind ?? '').trim();
+  if (k) return k;
+  const key = String(payload?.chatKey ?? payload?.session?.chatKey ?? '');
+  const m = key.match(/^([a-zA-Z]+):/);
+  return m ? m[1] : '';
+}
+
+/**
+ * 判定「这条消息是不是主人发的」。
+ * - 拿得到发送者 QQ：命中 ownerIds 才算主人。
+ * - 拿不到发送者：私聊/信息不全时按主人处理（机器人主动开口就是这种情况，那本来就是
+ *   主人的机器人）；但**群聊里认不出是谁就一律不算主人**，宁可不干活也不能让群友
+ *   借这个口子碰本机。
+ * - ownerIds 留空：谁都不是主人（授权整体关闭，最保守）。
+ */
+function ownerState(payload, cfg) {
+  const owners = parseIdList(cfg?.ownerIds);
+  const senderId = latestSenderId(payload?.triggerEntries);
+  const unknown = !senderId;
+  const kind = chatKindOf(payload);
+  const assumeOwner = unknown && kind !== 'group';
+  const isOwner = owners.length > 0 && (assumeOwner || (!!senderId && owners.includes(senderId)));
+  return { owners, senderId, unknown, kind, assumeOwner, isOwner };
+}
+
+/** 本轮触发消息的原文（触发词按它来匹配最准；没有就退回即将发出的最后一条用户消息）。 */
+function triggerText(triggerEntries) {
+  if (!Array.isArray(triggerEntries)) return '';
+  return triggerEntries.map((e) => String(e?.text ?? '')).filter(Boolean).join('\n').trim();
+}
+
+/** 消息里是否出现触发词，返回命中的那个词。 */
+function keywordHit(text, keywords) {
+  const words = String(keywords ?? '').split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean);
+  const hay = String(text ?? '').toLowerCase();
+  return words.find((w) => hay.includes(w.toLowerCase())) || '';
+}
+
+function lastUserText(messages) {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (!m || m.role !== 'user') continue;
+    if (typeof m.content === 'string') return m.content;
+    if (Array.isArray(m.content)) {
+      const joined = m.content
+        .map((part) => (typeof part === 'string' ? part : (part?.type === 'text' ? part.text : '')))
+        .filter(Boolean)
+        .join(' ');
+      if (joined) return joined;
+    }
+  }
+  return '';
+}
+
+/** 把聊天上下文压缩成一段可读的文字，交给 DSH。 */
+function buildContextDigest(messages, maxChars) {
+  if (!maxChars || !Array.isArray(messages) || messages.length === 0) return '';
+  const lines = [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (!m || m.role === 'system') continue;
+    const text = typeof m.content === 'string'
+      ? m.content
+      : (Array.isArray(m.content) ? m.content.filter((p) => p?.type === 'text').map((p) => p.text).join(' ') : '');
+    if (!text.trim()) continue;
+    const who = m.role === 'user' ? (m.name || '用户') : '机器人';
+    lines.unshift(`${who}: ${stripControl(text).trim()}`);
+  }
+  let digest = lines.join('\n');
+  if (digest.length > maxChars) digest = `（更早的对话已省略）\n${tail(digest, maxChars)}`;
+  return digest;
+}
+
+// ── 把 DSH 的 tool_call 事件说成人话 ───────────────────────────────────────
+// --json 事件流里 tool_call 长这样：
+//   { type:'tool_call', tool:'pwsh', input:{ command:'...', description:'...' } }
+// 这里只取「主人看得懂的一行」，绝不把整段脚本贴到群里。
+
+function describeToolCall(tool, input) {
+  const name = String(tool || '').trim() || '工具';
+  const bag = input && typeof input === 'object' ? input : {};
+  const pick = (...keys) => {
+    for (const k of keys) {
+      const v = bag[k];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+      if (Array.isArray(v) && v.length && typeof v[0] === 'string') return v.join(' ');
+    }
+    return '';
+  };
+  const p = pick('path', 'file_path', 'filePath', 'filename', 'target', 'file');
+  if (/pwsh|bash|shell|cmd|terminal|exec/i.test(name)) {
+    const cmd = pick('command', 'cmd', 'command_line', 'script');
+    const desc = pick('description');
+    return cmd ? `跑命令：${oneLine(cmd, 100)}` : `跑命令${desc ? `：${oneLine(desc, 80)}` : ''}`;
+  }
+  if (/read|cat|view/i.test(name)) return `读文件：${oneLine(p, 90) || name}`;
+  if (/write|edit|patch|create/i.test(name)) return `改文件：${oneLine(p, 90) || name}`;
+  if (/glob|list|ls|find_files/i.test(name)) return `找文件：${oneLine(pick('pattern', 'glob', 'path'), 80) || name}`;
+  if (/grep|search/i.test(name)) return `搜内容：${oneLine(pick('pattern', 'query', 'regex'), 80) || name}`;
+  if (/fetch|http|curl|download/i.test(name)) return `取网页：${oneLine(pick('url', 'query'), 80) || name}`;
+  if (/web|browse/i.test(name)) return `联网查：${oneLine(pick('query', 'url'), 80) || name}`;
+  if (/task|agent|subagent/i.test(name)) return `派子任务：${oneLine(pick('description', 'prompt'), 70) || name}`;
+  if (/screenshot|screen/i.test(name)) return '拍屏幕';
+  return `用 ${name}${p ? `：${oneLine(p, 70)}` : ''}`;
+}
+
+// ── 选项协议：DSH 提问、主人回数字 ─────────────────────────────────────────
+// DSH 的回答里如果出现单独一行 `[[选项]] A | B | C`，本技能就把它变成编号
+// 选项发到群里，并把「待选择」记在 pending.json 里；主人回复「2」以后，
+// before-llm-messages 钩子把选择注入模型上下文，让它把选择交回同一段对话。
+
+/** 从 DSH 的回答里切出 [[选项]] 那一行。 */
+function splitOptions(text) {
+  const s = String(text ?? '');
+  const re = /^[ \t]*\[\[[ \t]*选项[ \t]*\]\][ \t]*[:：]?[ \t]*(.+)$/im;
+  const m = s.match(re);
+  if (!m) return { text: s.trim(), options: [] };
+  const options = String(m[1])
+    .split(/[|｜]/)
+    .map((x) => String(x)
+      .replace(/^\s*(?:\d{1,2}|[一二两三四五六七八九十])\s*[.、．)）:：]\s*/, '')
+      .replace(/^\s*\d{1,2}\s+/, '')
+      .trim())
+    .filter(Boolean)
+    .slice(0, 6)
+    .map((x) => (x.length > 40 ? `${x.slice(0, 40)}…` : x));
+  const cleaned = s.replace(re, '').replace(/\n{3,}/g, '\n\n').trim();
+  return { text: cleaned, options };
+}
+
+const CN_NUM = { '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6 };
+
+/** 主人的回复是不是「选项里的某一条」。 */
+function matchChoice(text, options) {
+  const raw = String(text ?? '').trim();
+  if (!raw || !Array.isArray(options) || !options.length) return null;
+  const t = raw.replace(/^[【\[]|[】\]]$/g, '').trim();
+  // 「3」「选3」「第3个」「3.」「3、」「3号」
+  const m = t.match(/^(?:我?选|我选第|选第|第)?\s*([1-9]|[一二两三四五六])\s*(?:个|项|号|条)?\s*[.。、,)）]?$/);
+  if (m) {
+    const n = CN_NUM[m[1]] || Number(m[1]);
+    if (Number.isFinite(n) && n >= 1 && n <= options.length) {
+      return { index: n - 1, how: 'number', raw };
+    }
+  }
+  // 直接说了选项内容
+  const idx = options.findIndex((o) => {
+    const opt = String(o).trim();
+    if (!opt) return false;
+    if (t === opt) return true;
+    return opt.length >= 3 && (t.includes(opt) || opt.includes(t)) && t.length >= 2;
+  });
+  if (idx >= 0) return { index: idx, how: 'text', raw };
+  return null;
+}
+
+// ── 会话记忆 / 运行日志 / 待选选项 ─────────────────────────────────────────
+
+function createStore(dataDir, log) {
+  const scopedDataDir = pickDataDir(dataDir);
+  const storeDir = path.join(scopedDataDir, 'dsh-bridge');
+  const sessionsPath = path.join(storeDir, 'sessions.json');
+  const logPath = path.join(storeDir, 'runs.ndjson');
+  const pendingPath = path.join(storeDir, 'pending.json');
+  const shotsDir = path.join(storeDir, 'shots');
+
+  function ensureDir() {
+    try {
+      mkdirSync(storeDir, { recursive: true });
+      return true;
+    } catch (error) {
+      log(`⚠️ 无法创建数据目录 ${storeDir}：${error.message}`);
+      return false;
+    }
+  }
+
+  function readJson(file, fallback) {
+    try {
+      const raw = readFileSync(file, 'utf8');
+      const parsed = JSON.parse(raw.replace(/^\uFEFF/, ''));
+      return parsed && typeof parsed === 'object' ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function writeJson(file, value) {
+    const runWrite = () => {
+      try {
+        ensureDir();
+        writeFileSync(file, JSON.stringify(value(), null, 2), 'utf8');
+      } catch (error) {
+        log(`⚠️ 写入 ${path.basename(file)} 失败：${error.message}`);
+      }
+    };
+    writeTail = writeTail.then(runWrite, runWrite);
+  }
+
+  function readSessions() {
+    return readJson(sessionsPath, {});
+  }
+
+  function get(chatKey) {
+    if (!chatKey) return '';
+    const hit = readSessions()[String(chatKey)];
+    return hit && typeof hit.sessionId === 'string' ? hit.sessionId : '';
+  }
+
+  function set(chatKey, sessionId, extra = {}) {
+    if (!chatKey || !sessionId) return;
+    writeJson(sessionsPath, () => {
+      const all = readSessions();
+      all[String(chatKey)] = { sessionId: String(sessionId), updatedAt: Date.now(), ...extra };
+      return all;
+    });
+  }
+
+  function forget(chatKey) {
+    if (!chatKey) return;
+    writeJson(sessionsPath, () => {
+      const all = readSessions();
+      delete all[String(chatKey)];
+      return all;
+    });
+  }
+
+  function logRun(record) {
+    if (!ensureDir()) return;
+    try {
+      appendFileSync(logPath, `${JSON.stringify(record)}\n`, 'utf8');
+    } catch {
+      /* 运行日志失败不影响主流程 */
+    }
+  }
+
+  // ── 待选选项 ──
+  function setPending(chatKey, data) {
+    if (!chatKey) return;
+    writeJson(pendingPath, () => {
+      const all = readJson(pendingPath, {});
+      all[String(chatKey)] = { at: Date.now(), ...data };
+      return all;
+    });
+  }
+
+  function getPending(chatKey, ttlMs = OPTION_TTL_MS) {
+    if (!chatKey) return null;
+    const hit = readJson(pendingPath, {})[String(chatKey)];
+    if (!hit || !Array.isArray(hit.options) || !hit.options.length) return null;
+    if (ttlMs && Date.now() - Number(hit.at || 0) > ttlMs) return null;
+    return hit;
+  }
+
+  function clearPending(chatKey) {
+    if (!chatKey) return;
+    writeJson(pendingPath, () => {
+      const all = readJson(pendingPath, {});
+      delete all[String(chatKey)];
+      return all;
+    });
+  }
+
+  function countPending() {
+    return Object.keys(readJson(pendingPath, {})).length;
+  }
+
+  ensureDir();
+  return {
+    dir: storeDir, sessionsPath, logPath, pendingPath, shotsDir,
+    get, set, forget, logRun,
+    setPending, getPending, clearPending, countPending, ensureDir
+  };
+}
+
+// ── 跑一个外部进程（PowerShell 用） ────────────────────────────────────────
+
+function runProcess({ command, args, cwd, timeoutMs = 20000 }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        windowsHide: true,
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    } catch (error) {
+      resolve({ ok: false, code: 'SPAWN_THREW', message: error.message, stdout: '', stderr: '' });
+      return;
+    }
+    let out = '';
+    let err = '';
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      try { child.kill(); } catch { /* 已退出 */ }
+      resolve({ ok: false, code: 'TIMEOUT', message: `超过 ${Math.round(timeoutMs / 1000)} 秒没返回`, stdout: out, stderr: err });
+    }, timeoutMs);
+    child.stdout.on('data', (c) => { out = tail(out + c.toString('utf8'), 20000); });
+    child.stderr.on('data', (c) => { err = tail(err + c.toString('utf8'), 8000); });
+    child.on('error', (error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ ok: false, code: 'SPAWN_ERROR', message: error.message, stdout: out, stderr: err });
+    });
+    child.on('close', (code) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      const lastErr = String(err || '').trim().split(/\r?\n/).filter(Boolean).pop() || '';
+      resolve({ ok: code === 0, code: `EXIT_${code}`, message: lastErr, stdout: out, stderr: err });
+    });
+  });
+}
+
+// ── 拍屏幕 ─────────────────────────────────────────────────────────────────
+// 用 Windows 自带的 PowerShell 调 .NET：抓整个虚拟桌面（多显示器一起），
+// 太宽时等比缩小存成 PNG。脚本落在一个临时 .ps1 里 —— 这样不用把多行
+// 脚本塞进命令行参数（Windows 的参数转义会把它搞坏），也方便排查。
+
+const SHOT_SCRIPT = `param(
+  [Parameter(Mandatory=$true)][string]$Out,
+  [int]$MaxWidth = 1600
+)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$vs = [System.Windows.Forms.SystemInformation]::VirtualScreen
+$w = [int]$vs.Width
+$h = [int]$vs.Height
+if ($w -lt 8 -or $h -lt 8) { throw 'screen size looks invalid' }
+$bmp = New-Object System.Drawing.Bitmap -ArgumentList $w, $h
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen([int]$vs.Left, [int]$vs.Top, 0, 0, (New-Object System.Drawing.Size -ArgumentList $w, $h))
+if ($MaxWidth -gt 0 -and $w -gt $MaxWidth) {
+  $nw = $MaxWidth
+  $nh = [int][Math]::Round($h * $MaxWidth / $w)
+  $small = New-Object System.Drawing.Bitmap -ArgumentList $nw, $nh
+  $g2 = [System.Drawing.Graphics]::FromImage($small)
+  $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $g2.DrawImage($bmp, 0, 0, $nw, $nh)
+  $g2.Dispose()
+  $bmp.Dispose()
+  $bmp = $small
+}
+$bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+$g.Dispose()
+Write-Output ('OK ' + $w + 'x' + $h)
+`;
+
+/** 只保留最近的若干张截图，别把磁盘堆满。 */
+function pruneShots(dir, keep = 30) {
+  try {
+    const files = readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.png')).sort();
+    while (files.length > keep) {
+      const gone = files.shift();
+      try { unlinkSync(path.join(dir, gone)); } catch { /* 占用中就留着 */ }
+    }
+  } catch { /* 目录不存在等情况直接忽略 */ }
+}
+
+async function captureScreen({ storeDir, maxWidth, log }) {
+  const shotsDir = path.join(storeDir, 'shots');
+  try {
+    mkdirSync(shotsDir, { recursive: true });
+  } catch (error) {
+    return { ok: false, message: `无法创建截图目录：${error.message}` };
+  }
+  const scriptPath = path.join(storeDir, 'shot.ps1');
+  try {
+    if (!existsSync(scriptPath) || readFileSync(scriptPath, 'utf8') !== SHOT_SCRIPT) {
+      writeFileSync(scriptPath, SHOT_SCRIPT, 'utf8');
+    }
+  } catch (error) {
+    return { ok: false, message: `无法写入截图脚本：${error.message}` };
+  }
+
+  const outPath = path.join(shotsDir, `shot-${stamp()}.png`);
+  const res = await runProcess({
+    command: resolvePowerShell(),
+    args: [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', scriptPath, '-Out', outPath, '-MaxWidth', String(maxWidth || 0)
+    ],
+    timeoutMs: 25000
+  });
+  if (!res.ok || !existsSync(outPath)) {
+    return { ok: false, message: res.message || res.stderr || res.code || '没有生成图片' };
+  }
+  let bytes = 0;
+  try { bytes = statSync(outPath).size; } catch { /* 拿不到大小不影响 */ }
+  if (!bytes) return { ok: false, message: '截图是空文件' };
+  pruneShots(shotsDir, 30);
+  log?.(`已拍下屏幕 ${outPath}（${humanBytes(bytes)}）`);
+  return { ok: true, path: outPath, bytes };
+}
+
+// ── 真正跑一次 DSH ─────────────────────────────────────────────────────────
+
+function runOnce({ exe, profile, prompt, sessionId, cwd, timeoutMs, log, onEvent }) {
+  return new Promise((resolve) => {
+    const args = [...exe.args, '--profile', profile, '--json'];
+    if (sessionId) args.push('--session-id', sessionId);
+    args.push(prompt);
+
+    let child;
+    try {
+      child = spawn(exe.command, args, {
+        cwd,
+        windowsHide: true,
+        // 只有退回 dsh.cmd 时才需要 shell（Windows 上 .cmd 不能直接 spawn）
+        shell: !!exe.shell,
+        env: {
+          ...process.env,
+          // DSH 的启动器靠它用「DeepSeek Harness.exe」跑 Node 代码
+          ELECTRON_RUN_AS_NODE: '1',
+          // 群里的中文提示词在 Windows 控制台默认代码页下会乱码，强制 UTF-8
+          PYTHONIOENCODING: 'utf-8'
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    } catch (error) {
+      resolve({ ok: false, code: 'SPAWN_THREW', message: `启动 DSH 失败：${error.message}`, stderr: '' });
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+    let pending = '';
+    let finished = false;
+    const started = Date.now();
+
+    const timer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      try { child.kill(); } catch { /* 进程可能已退出 */ }
+      resolve({
+        ok: false,
+        code: 'TIMEOUT',
+        message: `DSH 超过 ${Math.round(timeoutMs / 1000)} 秒还没干完，已中止。可以在本技能的设置里调大「单次最长等待」。`,
+        stderr: tail(stderr, 1500),
+        durationMs: Date.now() - started
+      });
+    }, timeoutMs);
+
+    /** 把已经收到的完整行喂给进度回调（回调自己吞错，绝不影响任务）。 */
+    function feedEvents(text) {
+      if (typeof onEvent !== 'function') return;
+      pending += text;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('{')) continue;
+        let ev = null;
+        try { ev = JSON.parse(t); } catch { continue; }
+        try { onEvent(ev); } catch { /* 进度汇报不许拖垮任务 */ }
+      }
+    }
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString('utf8');
+      stdout += text;
+      // 防御：极端情况下事件流失控，别把内存吃了
+      if (stdout.length > 4_000_000) stdout = stdout.slice(-2_000_000);
+      feedEvents(text);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr = tail(stderr + chunk.toString('utf8'), 16000);
+      const line = chunk.toString('utf8').trim();
+      if (line) log(`DSH: ${line.slice(0, 300)}`);
+    });
+    child.on('error', (error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve({ ok: false, code: 'SPAWN_ERROR', message: `无法启动 DSH：${error.message}`, stderr: '' });
+    });
+    child.on('close', (code) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+
+      const events = [];
+      for (const line of stdout.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t.startsWith('{')) continue;
+        try { events.push(JSON.parse(t)); } catch { /* 不是事件行，跳过 */ }
+      }
+      const first = events.find((e) => e.type === 'session');
+      const finalEvent = events.filter((e) => e.type === 'final').pop();
+      const textEvent = events.filter((e) => e.type === 'text' && typeof e.text === 'string').pop();
+      const endStatus = events.filter((e) => e.type === 'status' && e.phase === 'turn_end').pop();
+      const answer = String(finalEvent?.text ?? textEvent?.text ?? '').trim();
+      const newSessionId = String(first?.sessionId ?? sessionId ?? '');
+      const reason = endStatus?.reason?.kind || (code === 0 ? 'completed' : 'exit-' + String(code));
+      const usage = events.filter((e) => e.usage).map((e) => e.usage).pop() || null;
+      const stderrText = stderr.trim();
+      const toolCalls = events.filter((e) => e.type === 'tool_call').length;
+      // 失败的工具调用原文（沙箱起不来这类问题时，真正的错误只在工具结果里）
+      const failedResults = events.filter((e) => {
+        if (e.type !== 'tool_result') return false;
+        const s = String(e.status ?? '').toLowerCase();
+        return !['completed', 'success', 'ok', 'succeeded'].includes(s);
+      });
+      const toolErrorText = tail(
+        failedResults.map((e) => stripControl(String(e.result ?? e.output ?? e.error ?? ''))).join('\n'),
+        1500
+      );
+
+      if (code === 0 && answer) {
+        resolve({
+          ok: true,
+          text: answer,
+          sessionId: newSessionId,
+          usage,
+          toolCalls,
+          toolErrors: failedResults.length,
+          toolErrorText,
+          durationMs: Date.now() - started
+        });
+        return;
+      }
+
+      const detail = (endStatus?.reason?.error?.message) || stderrText || (answer || '(空回答)');
+      resolve({
+        ok: false,
+        code: code === 0 ? 'EMPTY_ANSWER' : 'EXIT_' + String(code),
+        message: code === 0
+          ? `DSH 这一轮没给出回答（结束原因：${reason}）。`
+          : `DSH 退出码 ${code}（结束原因：${reason}）：${stripControl(detail).slice(0, 600)}`,
+        sessionId: newSessionId,
+        stderr: tail(stderrText, 1500),
+        toolCalls,
+        durationMs: Date.now() - started
+      });
+    });
+  });
+}
+
+// ── 技能主体 ───────────────────────────────────────────────────────────────
+
+export function setup(api) {
+  const boundLog = (...args) => {
+    const text = format(...args);
+    try {
+      if (typeof api?.log === 'function') api.log('%s', text);
+      else console.log(text);
+    } catch {
+      /* 日志失败不影响主流程 */
+    }
+  };
+  const boundWarn = (...args) => {
+    const text = format(...args);
+    try {
+      if (typeof api?.warn === 'function') api.warn('%s', text);
+      else console.warn(text);
+    } catch {
+      /* 同上 */
+    }
+  };
+
+  let store = null;
+  const getConfig = () => normalizeConfig(typeof api?.config === 'function' ? api.config() : null);
+
+  // QQ Agent 的数据目录：优先问宿主，其次环境变量，最后按技能位置推。
+  // 会话记忆、运行日志、截图、默认工作目录都放这里（不写进程序目录，升级不会被覆盖）。
+  const appInfo = api?.app || api?.host || api?.env || null;
+  const dataDir = pickDataDir(
+    appInfo?.dataDir
+    || appInfo?.paths?.data
+    || process.env.QQ_AGENT_DATA_DIR
+    || ''
+  );
+  const defaultWorkspace = path.join(dataDir, 'dsh-bridge-workspace');
+
+  const getStore = () => {
+    if (!store) store = createStore(dataDir, boundWarn);
+    return store;
+  };
+  // 模块级 hooks 拿不到 api，这里把「读配置」「拿存储」的办法交出去
+  hookRuntime = { getConfig, getStore };
+  getStore(); // 启动即建目录，排障时能直接看到位置
+
+  const getWorkspace = () => {
+    const cfg = getConfig();
+    return cfg.workspaceDir || defaultWorkspace;
+  };
+  const getExe = () => resolveDshExe(getConfig().dshDir);
+
+  // 让「机器人当前所在的群」有机会被带上：工具参数里的 chatKey 由模型填，
+  // 缺失时依次回退到运行期上下文里的 chatKey / 会话 id。
+  function pickChatKey(ctx, args) {
+    const candidate = args?.chatKey || ctx?.chatKey || ctx?.session?.chatKey || '';
+    return candidate ? String(candidate) : 'global';
+  }
+
+  /** 工具上下文里的 sender 才是真发送通道（和内置工具走同一条队列/限频/存档）。 */
+  function pushSent(ctx, entry) {
+    try {
+      ctx?.session?.sent?.push(entry);
+      ctx?.emit?.('session-update', ctx?.session?.id);
+    } catch { /* 记账失败不影响发送 */ }
+  }
+
+  async function sendTextToChat(ctx, chatKey, text) {
+    const result = await ctx.sender.sendTextBatch(chatKey, [text], {});
+    const first = result?.sent?.[0];
+    pushSent(ctx, { type: 'text', text, at: first?.at || clock() });
+    return first || null;
+  }
+
+  async function sendImageToChat(ctx, chatKey, file, note) {
+    const result = await ctx.sender.sendImage(chatKey, { file }, { note });
+    pushSent(ctx, { type: 'image', text: `[图片${note ? `:${String(note).slice(0, 40)}` : ''}]`, at: clock() });
+    return result;
+  }
+
+  /**
+   * 干活期间的「直播」：进度文字 + 屏幕照片。
+   *
+   * 三条硬约束（都是踩过的坑）：
+   *   · 不能刷屏：进度消息按间隔节流、且有总条数上限；
+   *   · 不能拖慢任务：所有发送都是 fire-and-forget，失败只记日志；
+   *   · 不能泄密：屏幕照片只发给「主人本人触发」的任务（群友派活、或
+   *     allowFromAnyone 打开时的群友派活，都不拍）。
+   */
+  function startLive({ ctx, chatKey, cfg, task, isOwner, log, warn }) {
+    const canSend = !!ctx?.sender && typeof ctx.sender.sendTextBatch === 'function' && typeof ctx.sender.sendImage === 'function';
+    const state = {
+      started: Date.now(),
+      closed: false,
+      step: 0,
+      textsSent: 0,
+      shotsSent: 0,
+      optionsSent: 0,
+      lastTextAt: 0,
+      lastText: '',
+      busy: false,
+      errors: 0,
+      firstTimer: null,
+      shotTimer: null,
+      beatTimer: null
+    };
+
+    async function rawText(text, { force = false, kind = 'progress' } = {}) {
+      if (state.closed || !canSend) return false;
+      if (kind === 'progress') {
+        if (!cfg.liveProgress || cfg.progressMax <= 0) return false;
+        if (state.textsSent >= cfg.progressMax) return false;
+        const elapsed = Date.now() - state.started;
+        // 短任务别出声：第一句进度至少要跑到 5 秒才发
+        if (!force && state.textsSent === 0 && elapsed < Math.min(5000, cfg.progressIntervalMs)) return false;
+        if (!force && state.textsSent > 0 && Date.now() - state.lastTextAt < cfg.progressIntervalMs) return false;
+      }
+      const clean = oneLine(text, 200);
+      if (!clean || clean === state.lastText) return false;
+      state.lastText = clean;
+      state.lastTextAt = Date.now();
+      if (kind === 'progress') state.textsSent += 1;
+      try {
+        await sendTextToChat(ctx, chatKey, clean);
+        if (kind === 'progress') stats.progressSent += 1;
+        return true;
+      } catch (error) {
+        state.errors += 1;
+        warn?.(`直播消息发送失败（${error.message}）`);
+        return false;
+      }
+    }
+
+    async function shot(reason) {
+      if (state.closed || !canSend) return null;
+      if (!cfg.screenShots || cfg.shotMax <= 0) return null;
+      if (!isOwner) return null;
+      if (state.shotsSent >= cfg.shotMax) return null;
+      state.shotsSent += 1;
+      const cap = await captureScreen({ storeDir: getStore().dir, maxWidth: cfg.shotMaxWidth, log });
+      if (!cap.ok) {
+        state.errors += 1;
+        warn?.(`拍屏幕失败：${cap.message}`);
+        return null;
+      }
+      if (state.closed) return null;
+      try {
+        await sendImageToChat(ctx, chatKey, cap.path, reason);
+        stats.shotsSent += 1;
+        return cap;
+      } catch (error) {
+        state.errors += 1;
+        warn?.(`屏幕照片发送失败（${error.message}）`);
+        return null;
+      }
+    }
+
+    async function sendOptions(question, options) {
+      if (!canSend || !Array.isArray(options) || !options.length) return false;
+      const head = question ? `【DSH 问你】${oneLine(question, 80)}\n` : '【DSH 问你】\n';
+      const body = options.map((o, i) => `${i + 1}. ${o}`).join('\n');
+      const text = `${head}${body}\n\n回复数字即可（比如「2」），我接着让它做。`;
+      try {
+        await sendTextToChat(ctx, chatKey, text);
+        state.optionsSent += 1;
+        stats.optionsSent += 1;
+        return true;
+      } catch (error) {
+        warn?.(`选项消息发送失败（${error.message}）`);
+        return false;
+      }
+    }
+
+    function onEvent(ev) {
+      if (state.closed) return;
+      const type = String(ev?.type || '');
+      if (type === 'tool_call') {
+        state.step += 1;
+        const what = describeToolCall(ev.tool, ev.input);
+        rawText(`🔧 ${what}（第 ${state.step} 步）`, { kind: 'progress' });
+        return;
+      }
+      if (type === 'tool_result') {
+        const status = String(ev?.status || '').toLowerCase();
+        if (status && status !== 'completed' && status !== 'success' && status !== 'ok') {
+          rawText(`⚠️ 第 ${state.step} 步没成功（${status}），它正在换个办法`, { kind: 'progress' });
+        }
+      }
+    }
+
+    if (canSend) {
+      // 第一句话：短任务别出声（跑完就直接给答案，多一句是噪音），
+      // 跑过 5 秒还没完就报个到，让人知道它在干什么。
+      state.firstTimer = setTimeout(() => {
+        if (state.closed || state.textsSent > 0 || !cfg.liveProgress || cfg.progressMax <= 0) return;
+        rawText(`🧠 DSH 开始干活了：${oneLine(task, 40)}`, { force: true, kind: 'progress' });
+      }, Math.min(5000, Math.max(1000, cfg.progressIntervalMs)));
+      state.firstTimer.unref?.();
+      // 心跳：长时间没动静（比如在跑一条很慢的命令）时冒个泡，别让人以为卡死了
+      state.beatTimer = setInterval(() => {
+        if (state.closed || !cfg.liveProgress) return;
+        const silent = Date.now() - (state.lastTextAt || state.started);
+        if (silent < cfg.progressIntervalMs * 2) return;
+        const sec = Math.round((Date.now() - state.started) / 1000);
+        rawText(`⏳ DSH 还在干（第 ${state.step || 1} 步，已 ${sec} 秒）`, { kind: 'progress' });
+      }, Math.max(3000, cfg.progressIntervalMs));
+      state.beatTimer.unref?.();
+    }
+
+    return {
+      state,
+      onEvent,
+      sendOptions,
+      /** 发一条「不是进度」的通知（不受进度条数/间隔限制，但同样不刷屏）。 */
+      async say(text) {
+        return rawText(text, { force: true, kind: 'note' });
+      },
+      async startAutoShots() {
+        if (!canSend || !isOwner || !cfg.screenShots || cfg.shotMax <= 0) return;
+        state.shotTimer = setInterval(() => {
+          if (state.closed) return;
+          if (state.shotsSent >= cfg.shotMax) {
+            clearInterval(state.shotTimer);
+            state.shotTimer = null;
+            return;
+          }
+          const sec = Math.round((Date.now() - state.started) / 1000);
+          shot(`自动 · 已 ${sec}s`).catch(() => {});
+        }, cfg.shotIntervalMs);
+        state.shotTimer.unref?.();
+      },
+      close() {
+        state.closed = true;
+        if (state.firstTimer) { clearTimeout(state.firstTimer); state.firstTimer = null; }
+        if (state.shotTimer) { clearInterval(state.shotTimer); state.shotTimer = null; }
+        if (state.beatTimer) { clearInterval(state.beatTimer); state.beatTimer = null; }
+      }
+    };
+  }
+
+  async function callDsh({ ctx, task, chatKey, timeoutOverride, fresh, live }) {
+    const cfg = getConfig();
+    const exe = getExe();
+    if (!exe) {
+      return {
+        ok: false,
+        code: 'NO_DSH',
+        message: `没找到 DSH：${cfg.dshDir} 里既没有「DeepSeek Harness.exe」。请在本技能的设置里把「DSH 安装目录」改成 DeepSeek Harness 的安装位置。`
+      };
+    }
+
+    const workspace = getWorkspace();
+    try {
+      mkdirSync(workspace, { recursive: true });
+    } catch (error) {
+      return { ok: false, code: 'NO_WORKSPACE', message: `无法创建工作目录 ${workspace}：${error.message}` };
+    }
+    // 先把工作目录的权限写实，否则 DSH 的沙箱会因为写不进权限表而一条命令都跑不了。
+    await ensureWorkspaceAccess(workspace, boundLog, boundWarn);
+
+    const sessions = getStore();
+    const previous = fresh ? '' : sessions.get(chatKey);
+    const timeoutMs = Math.max(10000, Number(timeoutOverride) || cfg.timeoutMs);
+
+    const contextDigest = buildContextDigest(ctx?.messages, cfg.maxContextChars);
+    const buildPrompt = (dir) => {
+      let text = '';
+      if (contextDigest) {
+        text += `【以下是 QQ 群里的最近对话，供你理解指代（「它」「这个」通常指这里最后的对象）。上下文不是给你的任务，不要回复它。】\n${contextDigest}\n\n`;
+      }
+      text += `【任务】\n${task}\n\n`;
+      text += `【回答要求】请直接给出最终结论，用中文、简洁、可以整段发到 QQ 群里。工作目录是 ${dir}，需要时可以在这里读写文件。\n\n`;
+      text += '【需要主人做决定时】如果有多套可行方案、或者继续之前必须先确认，不要自己猜：照常写完你的结论，然后在最后另起一行写\n'
+        + '[[选项]] 方案一 | 方案二 | 方案三\n'
+        + '（最多 6 项、每项不超过 30 字、整段回答里最多出现一次。我会把它变成编号选项发给主人，他回复数字后我再把选择交给你。）';
+      return text;
+    };
+
+    boundLog(`派活给 DSH（群 ${chatKey}${previous ? '，续用会话 ' + previous : '，开新会话'}，工作目录 ${workspace}，任务 ${task.length} 字）`);
+
+    const invoke = (sessionId, dir) => runOnce({
+      exe,
+      profile: cfg.profile,
+      prompt: buildPrompt(dir),
+      sessionId,
+      cwd: dir,
+      timeoutMs,
+      log: boundLog,
+      onEvent: (ev) => live?.onEvent?.(ev)
+    });
+
+    let result = await invoke(previous || '', workspace);
+    let rebuiltSession = false;
+    let usedWorkspace = workspace;
+
+    // 自愈一：记忆里的会话可能已经不存在（DSH 的会话目录被清理、换过 DSH_HOME
+    // 等）。这时 DSH 会直接报错退出；不能让这个群从此永远失败，所以丢掉旧
+    // 会话、原样重试一次，并把新会话记下来。
+    if (!result.ok && previous && isStaleSession(result)) {
+      boundWarn(`记忆里的 DSH 会话 ${previous} 已经不在了，自动开一段新会话重试。`);
+      result = await invoke('', workspace);
+      rebuiltSession = true;
+    }
+
+    // 自愈二：DSH 的沙箱起不来（工作目录的权限表写不进去）时，换到主人主目录下
+    // 的工作目录重跑一次 —— 那里的权限一定是够的。注意这种情况 DSH 可能是「成功
+    // 退出但一件活没干成」，所以这里不能加 !result.ok。换目录等于换会话，开新会话。
+    if (isSandboxAclFailure(result) && usedWorkspace !== FALLBACK_WORKSPACE) {
+      boundWarn(`DSH 的沙箱被工作目录 ${usedWorkspace} 的权限挡住了，自动换到 ${FALLBACK_WORKSPACE} 重跑一次。`);
+      await ensureWorkspaceAccess(FALLBACK_WORKSPACE, boundLog, boundWarn);
+      usedWorkspace = FALLBACK_WORKSPACE;
+      stats.workspaceFallbacks += 1;
+      result = await invoke('', FALLBACK_WORKSPACE);
+      rebuiltSession = true;
+    }
+    const workspaceNote = usedWorkspace === workspace
+      ? ''
+      : `它的工作目录被系统权限挡住了，已经自动换到 ${usedWorkspace} 重跑；如果愿意，可以在技能设置里把「工作目录」直接改成它。`;
+
+    stats.runs += 1;
+    stats.lastDurationMs = Number(result.durationMs) || 0;
+    stats.lastFinishedAt = Date.now();
+    if (result.ok) {
+      sessions.set(chatKey, result.sessionId, {
+        workspace: usedWorkspace,
+        ...(rebuiltSession
+          ? { note: workspaceNote ? '换过工作目录，这里是重新建立的会话' : '旧会话已失效，这里是重新建立的会话' }
+          : {})
+      });
+    } else if (result.sessionId && result.code !== 'TIMEOUT') {
+      sessions.set(chatKey, result.sessionId, { workspace: usedWorkspace });
+    }
+    result.workspace = usedWorkspace;
+    stats.lastWorkspace = usedWorkspace;
+    if (workspaceNote) {
+      result.workspaceNote = workspaceNote;
+      // 主人得知道「换地方了」，否则他会去原来的目录里找文件。
+      await (live?.say?.(`⚠️ ${workspaceNote}`) ?? Promise.resolve(false));
+    }
+
+    // 选项协议：把 [[选项]] 那一行抠出来，变成编号选项发到群里，并记下待选。
+    let optionsSent = false;
+    let options = [];
+    if (result.ok) {
+      const parsed = splitOptions(result.text);
+      result.text = parsed.text || result.text;
+      options = parsed.options;
+      if (options.length) {
+        const question = String(result.text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean).pop() || '';
+        optionsSent = await (live?.sendOptions?.(question, options) ?? Promise.resolve(false));
+        if (optionsSent) {
+          sessions.setPending(chatKey, {
+            options,
+            question: oneLine(question, 120),
+            sessionId: result.sessionId || '',
+            at: Date.now()
+          });
+        }
+      }
+    }
+
+    sessions.logRun({
+      at: new Date().toISOString(),
+      chatKey,
+      ok: !!result.ok,
+      code: result.code || 'OK',
+      durationMs: result.durationMs || 0,
+      sessionId: result.sessionId || '',
+      promptChars: task.length,
+      answerChars: result.ok ? result.text.length : 0,
+      toolCalls: Number(result.toolCalls) || 0,
+      options: options.length,
+      live: live ? { progress: live.state.textsSent, shots: live.state.shotsSent } : null,
+      usage: result.usage || null
+    });
+
+    result.options = options;
+    result.optionsSent = optionsSent;
+    return result;
+  }
+
+  // ── 工具 1：把活派给 DSH ─────────────────────────────────────────────────
+  const toolId = api.registerTool({
+    id: 'dsh_agent',
+    name: 'dsh_agent',
+    description: [
+      '把需要深度思考、写代码、改文件、查本机文件或目录、多步排查的任务派给本机的 DSH（DeepSeek Harness）智能体，',
+      '返回它的最终回答。DSH 会真的在这台电脑上动手执行，因此任务要写清楚、可独立完成。',
+      '它在干活的过程中会自己往群里发进度（第几步、在跑什么命令），需要主人拍板时会发编号选项 —— 这些你不用管。',
+      '适合：「问 DSH」「让 DSH 看看/算一下/写个脚本」「看一下某个目录/文件」「深度分析」。',
+      '不适合：闲聊、情绪陪伴、一句话能答完的常识问题。同一段对话（不传 chatKey 时按当前会话）会被沿用，',
+      '所以可以让它接着上文继续做。注意：只有主人（管理员本人）能用它碰本机文件，其他人调用会被拒绝。'
+    ].join(''),
+    category: 'system',
+    icon: '🧠',
+    parameters: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description: '要交给 DSH 的完整任务描述。一次只交一件事，写清楚目标、约束、期望的输出形式。'
+        },
+        chatKey: {
+          type: 'string',
+          description: '可选。要延续哪段 DSH 对话（一般填当前群的 chatKey）。留空 = 用当前群。'
+        },
+        fresh: {
+          type: 'boolean',
+          description: '可选。true = 这次不要延续旧对话，重新开一段（换话题、上次答案跑偏时用）。'
+        },
+        timeoutMs: {
+          type: 'number',
+          description: '可选。本次任务最长等待毫秒数，默认取本技能设置（一般 180000）。'
+        }
+      },
+      required: ['task']
+    },
+    async execute(ctx, args = {}) {
+      const task = String(args.task ?? '').trim();
+      if (!task) {
+        return { content: '任务内容是空的：需要在 task 参数里写清楚要 DSH 做什么。', isError: true };
+      }
+      if (task.length > 20000) {
+        return { content: `任务太长（${task.length} 字）。请拆成几件小事分别交给 DSH。`, isError: true };
+      }
+
+      const cfg = getConfig();
+      const chatKey = pickChatKey(ctx, args);
+      // 屏幕照片只跟主人走：群友派活（allowFromAnyone）时绝不拍屏幕
+      const owner = ownerState({
+        triggerEntries: ctx?.session?.trigger,
+        chatKey,
+        kind: ctx?.kind
+      }, cfg);
+
+      const live = startLive({
+        ctx, chatKey, cfg, task,
+        isOwner: owner.isOwner,
+        log: boundLog,
+        warn: boundWarn
+      });
+      live.startAutoShots();
+
+      let result;
+      try {
+        result = await enqueue(() => callDsh({
+          ctx: { ...(ctx || {}), chatKey },
+          task,
+          chatKey,
+          timeoutOverride: args.timeoutMs,
+          fresh: args.fresh === true,
+          live
+        }));
+      } finally {
+        live.close();
+      }
+
+      if (!result.ok) {
+        stats.failures += 1;
+        if (result.code === 'TIMEOUT') stats.timeouts += 1;
+        stats.lastError = result.message || result.code;
+        boundWarn(`DSH 任务失败（${result.code}）：${result.message}`);
+        const extra = live.state.textsSent || live.state.shotsSent
+          ? '（刚才群里的那些进度就是它干到哪儿了。）'
+          : '';
+        return {
+          content: `DSH 这次没干成：${result.message}${extra}（若需要，可以把这条错误原样发给群主排查。）`,
+          isError: true
+        };
+      }
+
+      let text = stripControl(result.text);
+      if (cfg.replyPrefix) text = `${cfg.replyPrefix}${text}`;
+      text = truncate(text, cfg.maxReplyChars);
+      if (result.optionsSent) {
+        text += '\n\n（说明：需要主人拍板的那几项，我已经用编号选项直接发到群里了 —— 你不用再列一遍，'
+          + '简短说一句让他挑一个就行；他回复数字后，选择会自动交回刚才那段对话继续做。）';
+      }
+      return { content: text, isError: false };
+    }
+  });
+
+  // ── 工具 2：拍一张电脑屏幕的照片发到会话 ─────────────────────────────────
+  const screenToolId = api.registerTool({
+    id: 'screen_shot',
+    name: 'screen_shot',
+    description: [
+      '拍一张这台电脑「此刻的屏幕」照片，直接发到当前会话里（能拍下多显示器的整个桌面）。',
+      '适合：主人说「看看我电脑现在什么情况」「屏幕上是什么」「截个图给我」「刚才那个跑完了吗（看画面）」。',
+      '只有主人（管理员本人）能用。拍完照片会直接发出去，你只需要用一句话说明拍了什么。'
+    ].join(''),
+    category: 'system',
+    icon: '📷',
+    parameters: {
+      type: 'object',
+      properties: {
+        note: {
+          type: 'string',
+          description: '可选。照片的备注，会显示成图片说明，比如「测试跑完后的画面」。'
+        },
+        maxWidth: {
+          type: 'number',
+          description: '可选。照片最大宽度像素（默认取技能设置，一般 1600；越小发得越快）。'
+        }
+      },
+      required: []
+    },
+    async execute(ctx, args = {}) {
+      const cfg = getConfig();
+      const chatKey = pickChatKey(ctx, args);
+      const owner = ownerState({
+        triggerEntries: ctx?.session?.trigger,
+        chatKey,
+        kind: ctx?.kind
+      }, cfg);
+      if (!owner.isOwner) {
+        return {
+          content: '只有管理员本人（主人）能让我拍这台电脑的屏幕。',
+          isError: true
+        };
+      }
+      const cap = await captureScreen({
+        storeDir: getStore().dir,
+        maxWidth: clamp(args.maxWidth ?? cfg.shotMaxWidth, 320, 4096),
+        log: boundLog
+      });
+      if (!cap.ok) {
+        stats.lastError = `拍屏幕失败：${cap.message}`;
+        return { content: `拍屏幕失败：${cap.message}`, isError: true };
+      }
+      try {
+        await sendImageToChat(ctx, chatKey, cap.path, args.note ? String(args.note) : '当前屏幕');
+        stats.shotsSent += 1;
+      } catch (error) {
+        return { content: `照片拍好了但没发出去：${error.message}`, isError: true };
+      }
+      return {
+        content: `已经把当前屏幕的照片发到会话里了（${humanBytes(cap.bytes)}，文件：${cap.path}）。用一句话告诉主人你拍了什么就行。`,
+        isError: false
+      };
+    }
+  });
+
+  boundLog(`已加载：工具 ${toolId}、${screenToolId}（DSH 目录 ${getConfig().dshDir}，会话记忆 ${getStore().sessionsPath}，工作目录 ${getWorkspace()}）`);
+  // 提前把工作目录的权限写实（不然第一次派活时 DSH 的沙箱会起不来）。不等结果。
+  ensureWorkspaceAccess(getWorkspace(), boundLog, boundWarn);
+
+  return {
+    toolId,
+    screenToolId,
+    /**
+     * 供控制台/其它模块查询的运行期状态。
+     * 另外：设置里填了「直达关键词」时，可以在别处调用 matchesKeyword() 判断。
+     */
+    async state() {
+      const cfg = getConfig();
+      return {
+        toolId,
+        screenToolId,
+        dshDir: cfg.dshDir,
+        profile: cfg.profile,
+        workspace: getWorkspace(),
+        workspaceFallback: FALLBACK_WORKSPACE,
+        lastWorkspace: stats.lastWorkspace || '',
+        sessionsPath: getStore().sessionsPath,
+        runsLogPath: getStore().logPath,
+        pendingPath: getStore().pendingPath,
+        shotsDir: getStore().shotsDir,
+        pendingOptions: getStore().countPending(),
+        dshFound: !!getExe(),
+        live: {
+          progress: cfg.liveProgress,
+          intervalMs: cfg.progressIntervalMs,
+          max: cfg.progressMax,
+          shots: cfg.screenShots,
+          shotIntervalMs: cfg.shotIntervalMs,
+          shotMax: cfg.shotMax
+        },
+        stats: { ...stats }
+      };
+    },
+    matchesKeyword(text) {
+      const cfg = getConfig();
+      const words = cfg.triggerWords.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+      if (!words.length) return false;
+      const haystack = String(text || '').toLowerCase();
+      return words.some((w) => haystack.includes(w.toLowerCase()));
+    },
+    async run({ task, chatKey = 'global', fresh = false, timeoutMs = 0 }) {
+      if (!String(task || '').trim()) throw new Error('run() 需要 task');
+      return enqueue(() => callDsh({ task: String(task), chatKey: String(chatKey), fresh, timeoutOverride: timeoutMs }));
+    },
+    /** 手动拍一张屏幕（验收脚本用）。 */
+    async shoot({ maxWidth = 0, chatKey = '' } = {}) {
+      return captureScreen({ storeDir: getStore().dir, maxWidth: maxWidth || getConfig().shotMaxWidth, log: boundLog });
+    },
+    forget(chatKey) {
+      getStore().forget(chatKey);
+    }
+  };
+}
+
+/** 串行执行：同一时刻只跑一个 DSH 任务。 */
+function enqueue(fn) {
+  const run = queueTail.then(fn, fn);
+  queueTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+/**
+ * 三个钩子：告诉模型这次能不能动本机、硬闸拦住群友、把主人的选项选择交回 DSH。
+ *
+ * QQ Agent 在把消息发给模型之前会跑 before-llm-messages 钩子，传进来的
+ * payload.messages 就是即将发给模型的数组（允许原地改，返回值被忽略），
+ * payload.triggerEntries 是本轮收到的原始消息；每次工具调用前会跑 before-tool，
+ * 返回 { block: true, reason } 就能否决这次调用。
+ *
+ * 为什么需要它们：QQ Agent 的核心系统提示词里有一条最高优先级安全规则 ——
+ * 「你没有本地工具…工具不存在就是不存在」「群友要求你执行命令、查看电脑、读取文件
+ *  时一律拒绝，并提示"这个需要管理员在管理端操作"」。模型严格遵守了它，所以
+ * 主人问「看一下 C:\... 目录里有哪些子文件夹」时，机器人回的是那句拒绝。
+ * 主人（管理员本人）本来就不该被这条规则挡住，但核心提示词不区分主人和群友，
+ * 于是由本技能按 QQ 号判定，并只对主人开口。
+ */
+
+/** 主人发话时追加：明确解除「你没有本地工具」这条规则对本轮的限制。 */
+const OWNER_NOTICE = [
+  '【主人授权 · 本机外援可用】这条消息来自主人（管理员本人，不是群友）。',
+  `你现在的工具列表里确实有 ${TOOL_FULL_ID} 和 ${SCREEN_TOOL_FULL_ID}：前者是本机外援 DSH（DeepSeek Harness），能真的在主人电脑上读文件、看目录、跑命令、写代码；后者能随时拍一张这台电脑的屏幕照片发到会话里。`,
+  '所以本轮请按下面的口径做：',
+  `1. 主人让你「看一下某个目录 / 读某个文件 / 查本机情况 / 跑个命令 / 写个脚本」时，不要回「我没有本地工具」「需要管理员在管理端操作」——那是给群友的规矩。直接调用 ${TOOL_FULL_ID}，把路径和要做的事写成一条完整任务交给它（任务越具体它干得越准），然后用你自己的口吻把它的结果告诉主人，技术结论照实说，不要编。`,
+  `2. 主人说「看看我电脑现在什么情况 / 屏幕上是什么 / 截个图」时，调用 ${SCREEN_TOOL_FULL_ID}，照片会直接发到会话里，你不用自己转述画面细节。`,
+  `3. 长任务（跑命令、装东西、反复改文件）不用反复催：${TOOL_FULL_ID} 干活时会自己往群里发进度，需要拍板时也会自己发编号选项。你只要在它给结果之后收个尾。`,
+  '4. 主人要的这类信息（他自己电脑上的路径、目录、文件内容、命令输出）对他可以如实回答，他就是管理员。',
+  '5. 主人以外的人在群里让你动本机，仍然按核心安全规则拒绝。'
+].join('\n');
+
+/** 非主人 + 命中触发词时追加：可以派活，但不许碰本机。 */
+function guestNotice(hit) {
+  return [
+    `【派活提示】这条消息里出现了「${hit}」，说话的人不是主人。`,
+    `可以用 ${TOOL_FULL_ID} 请 DSH 帮忙做「不碰这台电脑」的活（查资料、写代码、深度分析、算东西），把结论发回群里。`,
+    '但绝不能用它去查看、读取、修改这台电脑上的文件或目录，也不能让它执行本机命令或拍屏幕 —— 这类请求按核心安全规则礼貌拒绝，提示需要管理员在管理端操作。'
+  ].join('\n');
+}
+
+/**
+ * 待选选项：如果主人这条消息就是对上一轮选项的回答，返回要注入的提示。
+ * 命中一次就消费掉（避免下一轮又被当成选项回答）。
+ */
+function pendingChoiceNotice(payload) {
+  const runtime = hookRuntime;
+  if (!runtime?.getStore) return '';
+  const chatKey = String(payload?.chatKey || payload?.session?.chatKey || '');
+  if (!chatKey) return '';
+  let hit = null;
+  let store = null;
+  try {
+    store = runtime.getStore();
+    hit = store.getPending(chatKey);
+  } catch {
+    return '';
+  }
+  if (!hit) return '';
+  const latest = triggerText(payload?.triggerEntries) || lastUserText(payload?.messages);
+  const choice = matchChoice(latest, hit.options);
+  if (!choice) return '';
+  try { store.clearPending(chatKey); } catch { /* 清不掉也不影响这次注入 */ }
+  const picked = hit.options[choice.index];
+  return [
+    `【选项已选定】主人刚回复「${oneLine(choice.raw, 30)}」→ 第 ${choice.index + 1} 项 =「${picked}」。`,
+    `这是他对上一轮 DSH 提问的回答${hit.question ? `（当时问的是：${hit.question}）` : ''}。`,
+    `你现在唯一要做的事：调用 ${TOOL_FULL_ID}，task 参数填「我选择第 ${choice.index + 1} 项：${picked}」，其余的交给 DSH —— 它会继续刚才那段对话。`,
+    '不要再把选项列一遍，也不要再问一遍；DSH 返回后就按它的结果回话。'
+  ].join('\n');
+}
+
+export const hooks = {
+  /** 提示层：主人发话就解除本机限制；非主人则在命中触发词时给一条受限提示。 */
+  async 'before-llm-messages'(payload) {
+    try {
+      const cfg = hookRuntime?.getConfig?.();
+      if (!cfg) return;
+      const msgs = payload?.messages;
+      if (!Array.isArray(msgs) || !msgs.length) return;
+
+      const { isOwner } = ownerState(payload, cfg);
+      if (isOwner) {
+        msgs.push({ role: 'system', content: OWNER_NOTICE });
+      } else if (cfg.allowFromAnyone) {
+        const latest = triggerText(payload?.triggerEntries) || lastUserText(msgs);
+        const hit = latest ? keywordHit(latest, cfg.triggerWords) : '';
+        if (hit) msgs.push({ role: 'system', content: guestNotice(hit) });
+      }
+
+      // 主人回复了编号选项 → 把这次选择交回 DSH（不分主人/群友，能派活的场景都需要）
+      const choiceNotice = pendingChoiceNotice(payload);
+      if (choiceNotice) msgs.push({ role: 'system', content: choiceNotice });
+    } catch {
+      // 只是个提示：出错绝不能影响正常聊天
+    }
+  },
+
+  /** 硬闸：非主人（且没放开）时，直接否决对本机外援 / 拍屏幕的调用。 */
+  async 'before-tool'(payload) {
+    try {
+      const toolName = String(payload?.toolName || '');
+      if (!GATED_TOOLS.has(toolName)) return;
+      const cfg = hookRuntime?.getConfig?.();
+      if (!cfg) return;
+      if (cfg.allowFromAnyone) return;
+
+      // 工具调用阶段没有 triggerEntries，但 session.trigger 里存着本轮触发消息
+      const { isOwner, senderId } = ownerState({
+        triggerEntries: payload?.session?.trigger,
+        chatKey: payload?.session?.chatKey ?? payload?.chatKey,
+        kind: payload?.kind
+      }, cfg);
+      if (isOwner) return;
+      const who = toolName === SCREEN_TOOL_FULL_ID ? '拍这台电脑的屏幕' : '动用本机 DSH 外援';
+      return {
+        block: true,
+        reason: `只有管理员本人（主人）能让我${who}；${senderId ? `当前发送者 ${senderId} 不在主人名单里` : '没能确认发送者是主人'}。`
+          + '如果你需要它帮忙，可以在「技能 → DSH 深度外援」里把自己的 QQ 号加进主人名单，或打开「允许群友派活」。'
+      };
+    } catch {
+      return undefined; // 判定失败时不拦，交给模型和安全规则
+    }
+  }
+};
+
+export function available() {
+  // 必须在 setup 之前就能回答「这个模块能不能用」，所以这里只做静态检查。
+  const dshDir = DEFAULTS.dshDir;
+  return {
+    available: !!resolveDshExe(dshDir),
+    reason: resolveDshExe(dshDir)
+      ? ''
+      : `没在 ${dshDir} 找到「DeepSeek Harness.exe」。技能仍会加载，但真正派活时会在群里报错。`
+  };
+}
+
+export function deactivate() {
+  // 没有常驻定时器/子进程需要清理：每次任务都是独立进程，等待即结束。
+}
+
+export const meta = { id: 'dsh-bridge', kind: 'skill', version: '1.3.1' };

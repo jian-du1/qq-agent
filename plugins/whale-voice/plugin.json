@@ -1,0 +1,71 @@
+{
+  "id": "whale-voice",
+  "name": "鲸鱼语音",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "media",
+  "description": "让鲸鱼（机器人）把回复念成语音发出来。支持三种模式：每次都念 / 关键词触发 / 文字+语音双发。默认用晓伊（zh-CN-XiaoyiNeural）的可爱女声，Edge-TTS 失败时回退 Windows SAPI 慧慧女声。",
+  "author": "",
+  "entry": "index.js",
+  "enabledByDefault": false,
+  "capabilities": [],
+  "requires": [],
+  "configSchema": {
+    "mode": {
+      "type": "enum",
+      "label": "触发模式",
+      "values": ["always", "keyword", "dual"],
+      "default": "always",
+      "description": "always=每次回复都念成语音；keyword=仅当用户消息含关键词时念；dual=文字回复+语音双发。"
+    },
+    "voice": {
+      "type": "string",
+      "label": "Edge-TTS 音色",
+      "default": "zh-CN-XiaoyiNeural",
+      "placeholder": "zh-CN-XiaoyiNeural",
+      "description": "可选：zh-CN-XiaoyiNeural(晓伊,可爱女声★推荐)/zh-CN-XiaoshuangNeural(晓双,萝莉童声)/zh-CN-XiaoxiaoNeural(晓晓,成熟女声)/zh-CN-YunxiNeural(云希,男)"
+    },
+    "keywordList": {
+      "type": "string",
+      "label": "触发关键词(mode=keyword时生效)",
+      "multiline": true,
+      "default": "念\n说一句\n读\n语音\n鲸鱼说\n念一下",
+      "description": "每行一个关键词。当用户消息包含其中任意一个时，把回复念成语音。"
+    },
+    "rate": {
+      "type": "slider",
+      "label": "语速",
+      "min": -50,
+      "max": 100,
+      "step": 10,
+      "default": 0,
+      "unit": "%"
+    },
+    "pitch": {
+      "type": "string",
+      "label": "音调偏移",
+      "default": "+0Hz",
+      "placeholder": "+0Hz / -5Hz / +10Hz"
+    },
+    "useSapiFallback": {
+      "type": "boolean",
+      "label": "Edge-TTS失败时回退Windows SAPI",
+      "default": true
+    },
+    "tempDir": {
+      "type": "string",
+      "label": "音频临时目录",
+      "default": "",
+      "placeholder": "留空=系统临时目录"
+    }
+  },
+  "settings": {
+    "mode": "always",
+    "voice": "zh-CN-XiaoyiNeural",
+    "keywordList": "念\n说一句\n读\n语音\n鲸鱼说\n念一下",
+    "rate": 0,
+    "pitch": "+0Hz",
+    "useSapiFallback": true,
+    "tempDir": ""
+  }
+}

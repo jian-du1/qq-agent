@@ -1,0 +1,27 @@
+{
+  "id": "market-preview",
+  "name": "内置扩展市场",
+  "version": "0.3.4",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "为控制台增加插件、技能与人设市场，支持下载量与最近更新排序、固定搜索和分批瀑布流。人设可预览完整正文，新增后自动选择并保存。",
+  "enabledByDefault": true,
+  "permissions": ["web_fetch"],
+  "capabilities": ["market.preview-state"],
+  "settings": {
+    "marketBase": "https://www.kondius.cn/api/community"
+  },
+  "configSchema": {
+    "market": {
+      "type": "action",
+      "label": "市场页面动作",
+      "action": "说明",
+      "description": "由「市场」页调用，按需读取插件、技能和人设列表，检查安装包或读取人设提示词。直接点击只显示说明。"
+    },
+    "marketBase": {
+      "type": "string",
+      "label": "市场接口地址",
+      "description": "默认使用 QQ Agent 官网市场。官网接口变化时可调整；只支持 HTTPS。"
+    }
+  }
+}

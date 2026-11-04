@@ -1,0 +1,23 @@
+@echo off
+setlocal
+title QQ Agent launcher
+cd /d "%~dp0"
+
+if not exist "runtime\node.exe" (
+  echo [ERROR] runtime\node.exe missing.
+  pause & exit /b 1
+)
+
+rem ---- 1) console (3210) ----
+netstat -ano | findstr /r /c:":3210 .*LISTENING" >nul
+if errorlevel 1 (
+  echo [1/2] starting console...
+  start "QQ Agent console" /min "%~dp0runtime\node.exe" "%~dp0src\server.js"
+  timeout /t 3 >nul
+) else (
+  echo [1/2] console already running
+)
+
+rem ---- 2) protocol side (this window) ----
+echo [2/2] starting NapCat...
+call "%~dp0start-napcat.cmd"

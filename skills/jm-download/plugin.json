@@ -1,0 +1,35 @@
+{
+  "id": "jm-download",
+  "name": "jm下载（优化版）",
+  "version": "2.5.1",
+  "type": "skill",
+  "apiVersion": 1,
+  "entry": "index.js",
+  "main": "index.js",
+  "manifest": "skill.json",
+  "skillManifest": "skill.json",
+  "category": "media",
+  "author": "QQ Agent + DSH",
+  "description": "禁漫漫画异步下载技能（优化版）：支持长篇漫画（多章节、上千页）下载；图源按章节 ID 取图、多域名轮换校验，不会串图错页；竖切还原、分卷 PDF 合成、顺序队列（多本排队、脱离对话、重启续跑）、群文件上传、今日JM／更新JM 信息图、简介信息卡、按群开关。",
+  "license": "UNLICENSED",
+  "qqAgent": {
+    "kind": "skill",
+    "skillManifest": "skill.json",
+    "entry": "index.js",
+    "requiresRestart": true
+  },
+  "files": [
+    "skill.json",
+    "plugin.json",
+    "index.js",
+    "engine.js",
+    "pdf.js",
+    "zip.js",
+    "jm_worker.py",
+    "upload.js",
+    "daily_updates.mjs",
+    "daily_image.py",
+    "selftest.mjs",
+    "README.md"
+  ]
+}

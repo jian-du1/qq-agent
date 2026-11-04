@@ -1,0 +1,1194 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   QQ Agent 控制台 · 深海女仆工坊主题（maid-atelier）
+   ──────────────────────────────────────────────────────────────────────────
+   这是控制台的【展示层覆盖文件】，不是 skills/ 或 plugins/ 扩展。
+   扩展系统（skills / plugins）没有任何前端接口，改不了控制台外观，
+   所以主题必须落在 ui/ 里 —— 见 data/ui-theme-backup/说明.md。
+
+   视觉语言与美术素材来自 DSH 皮肤 maid-atelier：
+     https://github.com/Small-tailqwq/dsh-deep-whale/tree/main/maid-atelier
+   ⚠️ 素材授权：CC BY-NC-SA 4.0（署名 · 非商业 · 相同方式共享），
+      完整署名链见 ui/maid-atelier/NOTICE，法律文本见 ui/maid-atelier/LICENSE-ARTWORK。
+
+   加载方式：ui/index.html 中在 /style.css 之后追加：
+       <link rel="stylesheet" href="/theme-maid-atelier.css" />
+       <script defer src="/theme-maid-atelier.js"></script>
+   关闭方式：删掉这两行 → 按 F5 立即恢复原样式，无需重启。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ══ 0. 素材路径 + 原始调色板 ══ */
+:root {
+  --art-top-trim: url("/maid-atelier/top-trim-tile.webp");
+  --art-bottom-trim: url("/maid-atelier/bottom-trim-tile.webp");
+  --art-crest: url("/maid-atelier/bottom-crest.webp");
+  --art-corner: url("/maid-atelier/sidebar-corner.webp");
+  --art-swag: url("/maid-atelier/sidebar-swag.webp");
+  --art-bow: url("/maid-atelier/bow-clean.webp");
+  --art-shield: url("/maid-atelier/workspace-shield.webp");
+  --art-ribbon: url("/maid-atelier/workspace-ribbon.webp");
+  --art-frame: url("/maid-atelier/settings-frame.webp");
+  --art-palace-night: url("/maid-atelier/palace-night.webp");
+  --art-palace-day: url("/maid-atelier/palace-day.webp");
+  --art-maid-left: url("/maid-atelier/maid-left.webp");
+  --art-maid-right: url("/maid-atelier/maid-right.webp");
+  /* 左上角品牌图标（上游 icons/delighted-192.png） */
+  --art-brand: url("/maid-atelier/brand-icon.png");
+  /* 淡版女仆：内容打开时压下去，保证正文看得清 */
+  --art-maid-left-soft: url("/maid-atelier/maid-left-soft.webp");
+  --art-maid-right-soft: url("/maid-atelier/maid-right-soft.webp");
+
+  --maid-navy-950: #091333;
+  --maid-navy-900: #10204d;
+  --maid-navy-800: #1c326b;
+  --maid-indigo: #526aa8;
+  --maid-periwinkle: #8ea5da;
+  --maid-periwinkle-lt: #9bb0e1;
+  --maid-porcelain: #f8f6f0;
+  --maid-gold: #c5a468;
+  --maid-gold-soft: #e2cfaa;
+  --maid-ink: #172347;
+  --maid-display: Georgia, "Songti SC", "Times New Roman", serif;
+  /* 曲线移动用的弹簧缓动（带一点点过冲，看起来像"甩过去"） */
+  --maid-curve: cubic-bezier(.34, 1.36, .5, 1);
+  --maid-curve-soft: cubic-bezier(.25, 1, .5, 1);
+  /* 左侧栏宽度：会话/存档/记忆/设置/技能插件四处必须一致。
+     应用会把用户拖拽后的宽度写到 .list-pane 的行内 --list-w，
+     脚本再把它同步进 --maid-rail；默认值按反馈压细一点，好让底部绶带比例正。 */
+  --maid-rail: 264px;
+}
+
+/* 女仆的位置/大小必须能在两种状态间做动画，所以注册成可插值的自定义属性
+   （未注册的普通自定义属性不可动画；Chromium 130 支持 @property）。 */
+@property --maid-left-h { syntax: '<percentage>'; inherits: false; initial-value: 70%; }
+@property --maid-left-x { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+@property --maid-right-h { syntax: '<percentage>'; inherits: false; initial-value: 76%; }
+@property --maid-right-x { syntax: '<percentage>'; inherits: false; initial-value: 100%; }
+/* 打开会话/存档/记忆时的背景压暗强度（0 = 原图全强度，不调色） */
+@property --maid-veil-a { syntax: '<number>'; inherits: false; initial-value: 0; }
+
+/* ══ 1. 暗色主题：夜之宫殿 ══ */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg0: #0a1430;
+  --bg1: #101f47;
+  --bg2: #182a58;
+  --bg3: #21356a;
+  --bd: #263a6b;
+  --bd2: #3a4f8c;
+  --tx: #e9eefc;
+  --tx2: #a9b8dd;
+  --tx3: #7486b2;
+
+  --ac: #8ea5da;
+  --ac-soft: rgba(142, 165, 218, .16);
+  --ac-line: rgba(142, 165, 218, .44);
+
+  --ok: #63b48f;
+  --ok-line: rgba(99, 180, 143, .45);
+  --ok-soft: rgba(99, 180, 143, .12);
+  --warn: #d3b477;
+  --warn-line: rgba(211, 180, 119, .45);
+  --warn-soft: rgba(211, 180, 119, .12);
+  --err: #d98b93;
+  --err-line: rgba(217, 139, 147, .45);
+  --err-soft: rgba(217, 139, 147, .12);
+
+  --raise-1: 0 1px 2px rgba(3, 8, 26, .5);
+  --raise-3: 0 20px 58px rgba(2, 6, 20, .62), 0 2px 10px rgba(2, 6, 20, .45);
+  --hover: rgba(199, 214, 255, .055);
+  --overlay: rgba(5, 11, 32, .68);
+}
+
+/* ══ 2. 亮色主题：昼之宫殿 ══ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg0: #f2f6fd;
+  --bg1: #ffffff;
+  --bg2: #f7faff;
+  --bg3: #eef3fc;
+  --bd: #d7e0f1;
+  --bd2: #bcc9e4;
+  --tx: #172347;
+  --tx2: #4d5d7f;
+  --tx3: #6f7c99;
+
+  --ac: #526aa8;
+  --ac-soft: rgba(82, 106, 168, .12);
+  --ac-line: rgba(82, 106, 168, .40);
+
+  --ok: #2f8f6a;
+  --ok-line: rgba(47, 143, 106, .45);
+  --ok-soft: rgba(47, 143, 106, .09);
+  --warn: #a8842c;
+  --warn-line: rgba(168, 132, 44, .45);
+  --warn-soft: rgba(168, 132, 44, .10);
+  --err: #c2586a;
+  --err-line: rgba(194, 88, 106, .45);
+  --err-soft: rgba(194, 88, 106, .09);
+
+  --raise-1: 0 1px 3px rgba(15, 30, 72, .10);
+  --raise-3: 0 20px 56px rgba(15, 30, 72, .22), 0 2px 8px rgba(15, 30, 72, .12);
+  --hover: rgba(23, 35, 71, .045);
+  --overlay: rgba(9, 19, 51, .52);
+}
+
+/* ══ 3. 通用：字体、选区、滚动条 ══ */
+h1, h2, h3, h4 { font-family: var(--maid-display); letter-spacing: .002em; }
+::selection { background: rgba(197, 164, 104, .28); }
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(142, 165, 218, .34);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--maid-gold); background-clip: content-box; }
+
+/* ══ 4. 顶栏：海军蓝织物 + 金色滚边 ══ */
+#topbar {
+  height: 58px;
+  padding: 0 18px;
+  background:
+    linear-gradient(90deg, rgba(197, 164, 104, .25), var(--maid-gold-soft), rgba(197, 164, 104, .25))
+      0 100% / 100% 1.5px no-repeat,
+    repeating-linear-gradient(90deg, rgba(248, 246, 240, .028) 0 1px, transparent 1px 7px)
+      0 0 / 100% 100% no-repeat,
+    linear-gradient(180deg, #182a62 0%, #0f1d48 62%, #0b1638 100%) 0 0 / 100% 100% no-repeat;
+  box-shadow: 0 10px 26px rgba(3, 8, 26, .42);
+  color: var(--maid-porcelain);
+}
+.brand {
+  font-family: var(--maid-display);
+  font-size: 15.5px;
+  letter-spacing: .04em;
+  color: var(--maid-porcelain);
+  text-shadow: 0 1px 6px rgba(3, 8, 26, .6);
+}
+/* 左上角品牌图标：改用上游 icons/delighted-192.png（Q 版女仆，透明底） */
+.brand::before {
+  content: '';
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--art-brand) center / 124% no-repeat;
+  border: 1px solid var(--maid-gold);
+  box-shadow: 0 0 0 2px rgba(197, 164, 104, .25), 0 2px 8px rgba(3, 8, 26, .45);
+}
+.brand-sub { color: rgba(226, 207, 170, .74); letter-spacing: .06em; }
+#topbar .sep, .sep { background: rgba(151, 169, 216, .28); }
+
+.stat, #topbar .muted, .readiness-dots {
+  height: 29px;
+  background: rgba(9, 19, 51, .52);
+  border: 1px solid rgba(142, 165, 218, .28);
+  color: #b9c6e6;
+  backdrop-filter: blur(3px);
+}
+#topbar .muted:hover, .stat:hover, .readiness-dots:hover {
+  border-color: rgba(197, 164, 104, .62);
+  color: var(--maid-porcelain);
+}
+.icon-btn {
+  width: 29px; height: 29px;
+  background: rgba(9, 19, 51, .52);
+  border: 1px solid rgba(197, 164, 104, .42);
+  color: var(--maid-gold-soft);
+}
+.icon-btn:hover {
+  border-color: var(--maid-gold);
+  color: var(--maid-porcelain);
+  box-shadow: 0 0 12px rgba(197, 164, 104, .3);
+}
+
+/* ══ 5. 页签：上游真·蕾丝织带垂边 ══ */
+#tabs {
+  height: 56px;
+  padding: 0 16px;
+  background:
+    var(--art-top-trim) 0 100% / auto 36px repeat-x,
+    linear-gradient(180deg, #14234f 0%, #0f1c46 100%) 0 0 / 100% 100% no-repeat;
+  border-bottom: none;
+}
+.tab {
+  color: #93a4cf;
+  letter-spacing: .03em;
+  text-shadow: 0 1px 4px rgba(3, 8, 26, .5);
+  transform-origin: center bottom;
+  transition: color .18s ease, transform .28s var(--maid-curve), text-shadow .28s ease;
+}
+.tab:hover { color: var(--maid-gold-soft); }
+/* 选中：按反馈去掉"点 + 下划线"，改成弹出变大 + 描金发光 */
+.tab.active, .tab.on {
+  color: #fff;
+  z-index: 2;
+  transform: scale(1.16) translateY(-1px);
+  box-shadow: none;
+  text-shadow: 0 0 15px rgba(226, 207, 170, .8), 0 1px 4px rgba(3, 8, 26, .75);
+}
+.tab.active::after, .tab.on::after { content: none; }
+
+.nav-btn {
+  height: 27px;
+  background: rgba(248, 246, 240, .06);
+  border: 1px solid rgba(197, 164, 104, .42);
+  color: #dfe6f7;
+}
+.nav-btn:hover {
+  background: rgba(248, 246, 240, .13);
+  border-color: var(--maid-gold);
+  color: var(--maid-porcelain);
+}
+.nav-btn.nav-btn-market, .nav-btn.nav-btn-primary {
+  color: var(--maid-periwinkle-lt);
+  border-color: rgba(142, 165, 218, .5);
+}
+.nav-btn.nav-btn-persona { color: var(--maid-gold-soft); border-color: rgba(197, 164, 104, .5); }
+.nav-btn.nav-btn-hot {
+  background: linear-gradient(180deg, var(--maid-gold-soft), #a8873f);
+  border-color: rgba(226, 207, 170, .9);
+  color: #1b1330;
+  text-shadow: none;
+}
+.nav-btn.nav-btn-hot:hover { filter: brightness(1.06); color: #1b1330; }
+
+/* ══ 6. 主舞台：宫殿挂在**每个 view 自己**身上 ══
+   ⚠️ 之前挂在 #layout（所有 view 的共同父层），导致"会话开了 → 记忆的底也一起变暗"
+   —— 因为隐藏的 view 里的选中项一样会命中 :has()。改挂到 .view 上，
+   压暗状态就只作用于当前这个 view 自己（切页签互不影响）。 */
+#layout { position: relative; }
+
+.view {
+  --maid-veil-a: 0;
+  transition: --maid-veil-a .55s var(--maid-curve-soft);
+  background:
+    linear-gradient(180deg, rgb(7 14 36 / var(--maid-veil-a)), rgb(5 11 30 / var(--maid-veil-a)))
+      0 0 / 100% 100% no-repeat,
+    var(--art-palace-night) center bottom / cover no-repeat,
+    #0a1430;
+}
+[data-theme='light'] .view {
+  background:
+    linear-gradient(180deg, rgb(250 252 255 / var(--maid-veil-a)), rgb(243 247 254 / var(--maid-veil-a)))
+      0 0 / 100% 100% no-repeat,
+    var(--art-palace-day) center bottom / cover no-repeat,
+    #f2f6fd;
+}
+/* 只有"自己这个页面"里选中了东西才压暗 */
+#view-sessions:has(.session-item.selected),
+#view-chats:has(.chat-item.selected),
+#view-memory:has(.chat-item.selected) { --maid-veil-a: .78; }
+[data-theme='light'] #view-sessions:has(.session-item.selected),
+[data-theme='light'] #view-chats:has(.chat-item.selected),
+[data-theme='light'] #view-memory:has(.chat-item.selected) { --maid-veil-a: .82; }
+
+/* ══ 7. 左侧栏：半透明海军蓝 + 上游角花包边（最上层） ══ */
+.list-pane {
+  --list-w: var(--maid-rail);
+  /* 应用会把宽度直接写成行内 flex-basis/width，所以这里必须 !important 才能压过它。
+     拖拽依然有效：应用的拖拽器改 --list-w，脚本把它同步进 --maid-rail，宽度就跟着走。 */
+  width: var(--maid-rail) !important;
+  flex-basis: var(--maid-rail) !important;
+  border-right: none;
+  background:
+    linear-gradient(90deg, rgba(248, 246, 240, .05) 0, rgba(248, 246, 240, 0) 14px) 100% 0 / 100% 100% no-repeat,
+    linear-gradient(180deg, rgba(16, 30, 70, .62) 0%, rgba(10, 22, 56, .68) 68%, rgba(8, 17, 44, .74) 100%) 0 0 / 100% 100% no-repeat;
+}
+/* 亮色主题下宫殿是亮的：左栏若太透，浅色文字会糊在亮背景上 —— 提高不透明度保对比 */
+[data-theme='light'] .list-pane {
+  background:
+    linear-gradient(90deg, rgba(248, 246, 240, .05) 0, rgba(248, 246, 240, 0) 14px) 100% 0 / 100% 100% no-repeat,
+    linear-gradient(180deg, rgba(16, 30, 70, .90) 0%, rgba(11, 24, 60, .92) 68%, rgba(9, 19, 50, .94) 100%) 0 0 / 100% 100% no-repeat;
+}
+[data-theme='light'] .settings-sidebar {
+  background: linear-gradient(180deg, rgba(18, 32, 77, .92) 0%, rgba(11, 24, 60, .94) 100%);
+}
+/* 表头：按反馈删掉标题文案（记忆 / 50 2212 / 消息存档）与下面的白色蕾丝带，
+   只留右侧的 群发 / 清空 按钮。用 font-size:0 让纯文本节点消失，再用按钮字号救回来。 */
+.list-head {
+  min-height: 40px;
+  padding: 7px 12px;
+  font-size: 0;
+  justify-content: center;      /* 按反馈：群发 / 清空 居中 */
+  color: var(--maid-gold-soft);
+  border-bottom: 1px solid rgba(151, 169, 216, .16);
+  background: linear-gradient(180deg, rgba(24, 42, 92, .5), rgba(12, 24, 58, .35));
+}
+/* font-size:0 让标题文本与计数（含 #session-count 这种 span）一起消失，只把按钮字号救回来 */
+.list-head-btn, .list-head .btn { font-size: 11.5px; }
+.list-head-btn {
+  font-size: 11.5px;
+  border: 1px solid rgba(197, 164, 104, .4);
+  border-radius: 999px;
+  background: rgba(9, 19, 51, .42);
+  color: var(--maid-gold-soft);
+  letter-spacing: .04em;
+}
+.list-head-btn:hover {
+  color: var(--maid-porcelain);
+  border-color: var(--maid-gold);
+  background: rgba(197, 164, 104, .22);
+}
+/* 按反馈删掉左栏底部的"向下滚动加载更多（还有 N 条）"。
+   不用 display:none —— 保留元素在流里（应用可能拿它当滚动哨兵），只是看不见、不占高度。 */
+.list-pane .list-more {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  opacity: 0;
+  font-size: 0;
+  pointer-events: none;
+}
+
+/* 左侧栏四角描金包边 —— 原作做法：62×62 的框装 130×130 原图，四角各一份、用镜像
+   （transform: scaleX(-1) / scaleY(-1) / scale(-1)），角与角之间补竖金线。
+   由 theme-maid-atelier.js 注入 <div class="maid-frame">。 */
+.maid-frame {
+  position: absolute;
+  inset: 0;
+  /* 按反馈放**最上层**：dock 上沿那层渐隐（z-index 8）不会再糊掉底部的金色包边 */
+  z-index: 10;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg,
+      transparent 62px,
+      rgba(216, 186, 128, .5) 62px,
+      rgba(216, 186, 128, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) 8px 0 / 1px 100% no-repeat,
+    linear-gradient(180deg,
+      transparent 62px,
+      rgba(216, 186, 128, .5) 62px,
+      rgba(216, 186, 128, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) calc(100% - 8px) 0 / 1px 100% no-repeat,
+    linear-gradient(90deg,
+      transparent 62px,
+      rgba(216, 186, 128, .5) 62px,
+      rgba(216, 186, 128, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) 0 8px / 100% 1px no-repeat,
+    linear-gradient(90deg,
+      transparent 62px,
+      rgba(216, 186, 128, .5) 62px,
+      rgba(216, 186, 128, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) 0 calc(100% - 8px) / 100% 1px no-repeat;
+}
+.maid-corner {
+  position: absolute;
+  width: 62px;
+  height: 62px;
+  background: var(--art-corner) top right / 130px 130px no-repeat;
+  filter: drop-shadow(0 1px 1px rgba(2, 7, 24, .42));
+  transform-origin: center;
+}
+.maid-corner.tl { top: 1px; left: 1px; transform: scaleX(-1); }
+.maid-corner.tr { top: 1px; right: 1px; }
+.maid-corner.br { right: 1px; bottom: 1px; transform: scaleY(-1); }
+.maid-corner.bl { bottom: 1px; left: 1px; transform: scale(-1); }
+
+/* ══ 8. 列表条目：磨砂蓝色玻璃 ══
+   ⚠️ 全列表 50+ 个条目，**不能用 backdrop-filter**（每项一次实时模糊 = 滚动/重绘卡顿）。
+   改成"更实的半透明渐变 + 内高光"来还原玻璃质感，观感几乎一致但几乎零成本。 */
+.session-item, .chat-item, .sitem {
+  position: relative;
+  isolation: isolate;            /* 让 ::after 的 z-index:-1 停在条目内部 */
+  margin: 0 10px 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background:
+    linear-gradient(160deg, rgba(126, 156, 226, .26) 0%, rgba(34, 56, 118, .60) 46%, rgba(12, 24, 58, .70) 100%);
+  border: 1px solid rgba(160, 185, 240, .22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    inset 0 -1px 0 rgba(9, 19, 51, .35),
+    0 6px 16px rgba(3, 8, 26, .26);
+}
+.session-item:hover, .chat-item:hover, .sitem:hover {
+  background:
+    linear-gradient(160deg, rgba(146, 176, 240, .30) 0%, rgba(48, 76, 148, .34) 46%, rgba(20, 38, 84, .38) 100%);
+  border-color: rgba(197, 164, 104, .38);
+}
+.session-item.selected, .chat-item.selected, .sitem.on {
+  background:
+    linear-gradient(160deg, rgba(226, 207, 170, .26) 0%, rgba(120, 148, 214, .22) 44%, rgba(24, 42, 92, .34) 100%);
+  border-color: rgba(197, 164, 104, .58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 8px 20px rgba(3, 8, 26, .34);
+}
+.session-item.selected::before, .chat-item.selected::before, .sitem.on::before {
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+  background: var(--maid-gold);
+  box-shadow: 0 0 10px rgba(197, 164, 104, .85);
+}
+/* 选中态：金色磨砂玻璃 + 左侧金条（按反馈不再在子项上铺缎带 / 不再播淡入） */
+
+/* 分组头：可点击折叠（缎带作为"已展开"的指示，见下） */
+.maid-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  min-height: 40px;              /* 与缎带同高 → 文字在缎带里垂直居中 */
+  margin: 7px 8px 3px;
+  padding: 3px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: var(--maid-display);
+  font-size: 12.5px;
+  letter-spacing: .06em;
+  color: var(--maid-gold-soft);
+  text-shadow: 0 1px 3px rgba(3, 8, 26, .7);
+  cursor: pointer;
+}
+.maid-group-head:hover { color: var(--maid-porcelain); }
+/* 群号前的金鲸鱼纹章盾 */
+.maid-group-head::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 18px;
+  height: 24px;
+  background: var(--art-shield) center / contain no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(3, 8, 26, .5));
+}
+/* 折叠箭头 */
+.maid-group-head::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-left: 3px;
+  border-right: 1.7px solid rgba(226, 207, 170, .9);
+  border-bottom: 1.7px solid rgba(226, 207, 170, .9);
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform .22s var(--maid-curve-soft);
+}
+.maid-group.collapsed .maid-group-head::after { transform: rotate(-45deg) translate(-1px, 1px); }
+.maid-group.collapsed .maid-group-list { display: none; }
+.maid-group-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.maid-group-count {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  color: rgba(226, 207, 170, .8);
+}
+/* 子区：虚线列出该群下的会话 */
+.maid-group-list {
+  margin: 0 10px 4px 20px;
+  padding-left: 9px;
+  border-left: 1px dashed rgba(160, 185, 240, .34);
+}
+.maid-group-list > .session-item, .maid-group-list > .chat-item { margin-left: 0; margin-right: 0; }
+
+/* 缎带：**展开时显示、收起时没有**；两者之间就是"从左往右淡入"的过渡动画。
+   用 border-image 九宫格（原作同款）：左侧端帽固定在左，中段随左栏宽度拉伸，
+   所以缎带永远是"左端固定、右端跟着左栏一起变宽"，不会被整体拉变形。 */
+.maid-group { position: relative; z-index: 0; }
+.maid-group::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 0;
+  height: 40px;
+  z-index: -1;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: solid;
+  border-width: 0 22px 0 20px;
+  border-image-source: var(--art-ribbon);
+  border-image-slice: 0 145 0 140 fill;
+  border-image-width: 0 22px 0 20px;
+  border-image-repeat: stretch;
+  filter: drop-shadow(0 3px 7px rgba(2, 8, 28, .42));
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transition: opacity .44s var(--maid-curve-soft), clip-path .44s var(--maid-curve-soft);
+}
+.maid-group:not(.collapsed)::before { opacity: 1; clip-path: inset(0 0 0 0); }
+
+/* 展开时子页"弹出"：只在用户展开那一次由脚本挂 .maid-pop（应用重绘不会重放） */
+.maid-group.maid-pop .maid-group-list > * { animation: maid-pop .38s var(--maid-curve) both; }
+.maid-group.maid-pop .maid-group-list > *:nth-child(2) { animation-delay: .04s; }
+.maid-group.maid-pop .maid-group-list > *:nth-child(3) { animation-delay: .08s; }
+.maid-group.maid-pop .maid-group-list > *:nth-child(4) { animation-delay: .12s; }
+.maid-group.maid-pop .maid-group-list > *:nth-child(n + 5) { animation-delay: .16s; }
+@keyframes maid-pop {
+  from { opacity: 0; transform: translateY(-10px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 存档 / 记忆：条目做成和会话「母群号」头**一样的一行缎带**（同尺寸、同排布、同内容层级）：
+   [纹章盾] 群号 ……………………………… 统计信息 [删除]
+   选中态复用上面那条 ::after 缎带。 */
+.list-pane .chat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin: 4px 8px !important;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.list-pane .chat-item::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 18px;
+  height: 24px;
+  background: var(--art-shield) center / contain no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(3, 8, 26, .5));
+}
+.list-pane .chat-item .chat-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.list-pane .chat-item .session-chat {
+  font-family: var(--maid-display);
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: var(--maid-gold-soft);
+  text-shadow: 0 1px 3px rgba(3, 8, 26, .7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 收成一行 —— 内容层级与群号头一致；最后一条消息改挂在 title 上做悬浮提示 */
+.list-pane .chat-item .chat-item-sub { display: none; }
+.list-pane .chat-item .session-meta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: rgba(226, 207, 170, .8);
+}
+/* 记忆的删除按钮：由脚本搬到条目最右，并收成一个小 ✕ */
+.list-pane .chat-item > .maid-row-del {
+  margin-left: 6px;
+  flex: 0 0 auto;
+  order: 9;
+  padding: 0 8px !important;
+  font-size: 13px !important;
+  line-height: 1;
+  border-radius: 999px;
+}
+.list-pane .chat-item:hover { background: none; border: none; }
+
+/* 选中态缎带（展开 = 选中、收起 = 未选中），同样从左往右淡入、铺在文字底下 */
+.list-pane .chat-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-style: solid;
+  border-width: 0 22px 0 20px;
+  border-image-source: var(--art-ribbon);
+  border-image-slice: 0 145 0 140 fill;
+  border-image-width: 0 22px 0 20px;
+  border-image-repeat: stretch;
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transition: opacity .44s var(--maid-curve-soft), clip-path .44s var(--maid-curve-soft);
+}
+.list-pane .chat-item.selected::after { opacity: 1; clip-path: inset(0 0 0 0); }
+
+/* ⚠️ 应用的列表是整块 innerHTML 重绘的：新行"一出生"就带着 .selected，
+   CSS transition 不会有起始态 → 看不到淡入；取消选中时新行直接没有 .selected
+   → 也看不到淡出。所以由脚本在"选中项真的变了"时挂一次性动画类。 */
+.list-pane .chat-item.maid-fade-in::after { animation: maid-ribbon-in .48s var(--maid-curve-soft) both; }
+.list-pane .chat-item.maid-fade-out::after { animation: maid-ribbon-out .36s var(--maid-curve-soft) both; }
+@keyframes maid-ribbon-in {
+  from { opacity: 0; clip-path: inset(0 100% 0 0); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+@keyframes maid-ribbon-out {
+  from { opacity: 1; clip-path: inset(0 0 0 0); }
+  to { opacity: 0; clip-path: inset(0 100% 0 0); }
+}
+
+/* ══ 8.5 左栏底部：先虚化 → 横缎带 → 跳转设置按钮 ══
+   这是原作侧栏底部的布局（原作是「U 形虚化 + 缎带 + 设置板」）。
+   缎带用原作同款 border-image 九宫格：只拉伸中段，两端端帽保持原比例，
+   所以不会被拉变形；整体再按反馈往右挪约 3 个字符宽。 */
+/* 底部渐隐：**不用 mask**（mask + 滚动容器会让每帧多一层合成，滚动会卡），
+   改成 dock 上沿一层不参与滚动的渐变覆盖，成本几乎为零。 */
+.maid-rail-dock::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -54px;
+  height: 54px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(12, 24, 58, 0), rgba(11, 22, 54, .85) 62%, rgba(10, 20, 50, .96));
+}
+.maid-rail-dock {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 8;
+  /* 左右 16px：给缎带留出与金线的呼吸位（金线在 8px 处），缎带本身仍是原比例
+     底部 38px：给包边的下角留位（角花实际只画在角上约 31px 范围） */
+  padding: 0 16px 38px;
+}
+/* 左栏底部的分割：蕾丝 + 蝴蝶结绶带（sidebar-swag）。
+   **保持素材原始比例**（1200/303），只用 aspect-ratio 跟着左栏宽度整体缩放 ——
+   绝不压扁、不裁剪。宽度取 dock 的内容宽（左栏宽 - 32px），比"顶满两条金线"那版小一圈。 */
+.maid-rail-swag {
+  margin: 0 0 6px;
+  aspect-ratio: 1200 / 303;
+  background: var(--art-swag) center top / 100% 100% no-repeat;
+  filter: drop-shadow(0 3px 7px rgba(2, 8, 28, .5));
+}
+/* 「设置」按钮：用上游 settings-frame 当横向画框。
+   原作写法：border-image-slice: 0 220 0 220 fill（只取左右两端、中段拉伸），
+   padding-inline: 34px 让文字避开左右端帽 —— 这就是"不要顶格、不被边框遮挡"。 */
+.maid-rail-goto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  /* 只有「设置」按钮要离开金线：在 dock 的 16px 之外再缩进 12px（合计 28px，
+     与 8px 处的金线留出约一个字符的空当） */
+  width: calc(100% - 24px);
+  margin: 0 12px;
+  /* 等比缩小：画框端帽的原始比例是 220/320 ≈ 0.69，
+     所以 44px 高配 30px 端帽 = 完全同比例缩小，不会被压扁。 */
+  min-height: 44px;
+  padding: 0 34px;               /* 文字与左右端帽留出余量，不压边框 */
+  border-style: solid;
+  border-width: 0 30px;
+  border-image-source: var(--art-frame);
+  border-image-slice: 0 220 0 220 fill;
+  border-image-width: 0 30px;
+  border-image-repeat: stretch;
+  border-radius: 0;
+  background: none;
+  font-family: var(--maid-display);
+  font-size: 12.5px;
+  letter-spacing: .12em;
+  color: #f2dfba;
+  filter: drop-shadow(0 4px 10px rgba(2, 8, 28, .3));
+  transition: filter .16s ease, color .16s ease;
+}
+.maid-rail-goto:hover { color: #fff; filter: brightness(1.12) drop-shadow(0 4px 12px rgba(2, 8, 28, .4)); }
+.maid-rail-goto::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  background: var(--art-bow) center / contain no-repeat;
+  opacity: .95;
+}
+/* 设置页左栏也有角花（它是设置页的左列，不挂跳转按钮） */
+.settings-sidebar > .maid-frame { z-index: 10; }
+
+/* ══ 9. 详情区（会话 / 存档 / 记忆的右半边）
+   空状态：完全透明 → 宫殿与女仆全强度，只有纹章与护墙线。
+   打开内容：整块变成「磨砂玻璃面板」（backdrop-filter 磨的是背后的宫殿），
+   正文压在磨砂面上就看得清了；女仆同时换成淡版，不再和字抢视线。
+   右侧的描金角花按反馈撤掉，改成这层玻璃面板。 */
+.detail-pane {
+  --maid-fig-left: var(--art-maid-left-soft);
+  --maid-fig-right: var(--art-maid-right-soft);
+  background:
+    var(--art-crest) 50% 100% / auto 104px no-repeat,
+    var(--art-bottom-trim) 0 100% / auto 24px repeat-x,
+    var(--maid-fig-left) var(--maid-left-x) bottom / auto var(--maid-left-h) no-repeat,
+    var(--maid-fig-right) var(--maid-right-x) bottom / auto var(--maid-right-h) no-repeat;
+  transition:
+    --maid-left-h .74s var(--maid-curve),
+    --maid-left-x .74s var(--maid-curve),
+    --maid-right-h .74s var(--maid-curve),
+    --maid-right-x .74s var(--maid-curve),
+    background-color .45s ease,
+    box-shadow .45s ease;
+}
+/* 没有选中会话时：两位女仆大一点点、并向中间靠一点点（用实版） */
+.detail-pane:has(.empty-hint) {
+  --maid-fig-left: var(--art-maid-left);
+  --maid-fig-right: var(--art-maid-right);
+  --maid-left-h: 80%;
+  --maid-left-x: 9%;
+  --maid-right-h: 86%;
+  --maid-right-x: 91%;
+}
+/* 打开内容 → 磨砂玻璃（同样不用 backdrop-filter：整块面板实时模糊太贵） */
+.detail-pane:not(:has(.empty-hint)) {
+  background-color: rgba(9, 18, 44, .70);
+  border-radius: 16px 0 0 16px;
+  box-shadow:
+    inset 0 0 0 1px rgba(197, 164, 104, .26),
+    inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+[data-theme='light'] .detail-pane:not(:has(.empty-hint)) {
+  background-color: rgba(250, 252, 255, .62);
+  box-shadow:
+    inset 0 0 0 1px rgba(82, 106, 168, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+/* 其余全宽页（设置/用量/技能/插件/SnowLuma）保持实底抽象底纹，避免表单被宫殿干扰 */
+[data-theme='dark'] :is(.usage-pane, .snowluma-pane, .fullpage, .settings-pane) {
+  background:
+    var(--art-crest) 50% 100% / auto 104px no-repeat,
+    var(--art-bottom-trim) 0 100% / auto 24px repeat-x,
+    var(--art-corner) 100% 0 / 132px auto no-repeat,
+    radial-gradient(940px 430px at 50% -10%, rgba(142, 165, 218, .20), rgba(142, 165, 218, 0) 70%),
+    radial-gradient(620px 300px at 10% -4%, rgba(197, 164, 104, .12), rgba(197, 164, 104, 0) 72%),
+    linear-gradient(180deg, #0d1a42 0%, #0a1430 44%, #081027 100%),
+    #0a1430;
+}
+[data-theme='light'] :is(.usage-pane, .snowluma-pane, .fullpage, .settings-pane) {
+  background:
+    var(--art-crest) 50% 100% / auto 104px no-repeat,
+    var(--art-bottom-trim) 0 100% / auto 24px repeat-x,
+    var(--art-corner) 100% 0 / 132px auto no-repeat,
+    radial-gradient(1000px 470px at 50% -14%, #ffffff, rgba(255, 255, 255, 0) 70%),
+    radial-gradient(720px 340px at 90% 2%, rgba(142, 165, 218, .22), rgba(142, 165, 218, 0) 72%),
+    linear-gradient(180deg, #f7faff 0%, #eef3fc 46%, #e7eefb 100%),
+    #f2f6fd;
+}
+
+/* 空状态提示：按反馈删掉中间的蝴蝶结条带与"← 选择左侧会话…"提示文案。
+   只静音"←"开头的占位提示（应用自己写的），加载失败等真实提示照旧显示。 */
+.empty-hint { color: var(--tx3); letter-spacing: .06em; text-shadow: 0 1px 8px rgba(3, 8, 26, .7); }
+[data-theme='light'] .empty-hint { text-shadow: 0 1px 8px rgba(255, 255, 255, .9); }
+.detail-pane > .empty-hint.maid-silent { display: none; }
+
+/* ══ 10. 卡片 / 输入 / 按钮 ══ */
+.card, .scard, .prompt-preview-card, .health-card, .price-card,
+.usage-card, .metric, .settings-runstate {
+  background-color: var(--bg1);
+  background-image: linear-gradient(180deg, rgba(197, 164, 104, .10), rgba(197, 164, 104, 0) 46%);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-md);
+  box-shadow: var(--raise-1);
+}
+[data-theme='light'] .card, [data-theme='light'] .scard,
+[data-theme='light'] .usage-card, [data-theme='light'] .metric,
+[data-theme='light'] .settings-runstate {
+  border-color: #dbe3f2;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+select, textarea {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+}
+input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+select:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(197, 164, 104, .72);
+  box-shadow: 0 0 0 3px rgba(197, 164, 104, .16);
+}
+
+.btn {
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--bd2);
+}
+.btn:hover { border-color: var(--maid-gold); }
+.btn-primary {
+  background: linear-gradient(180deg, #5a74b8, #405a9c);
+  border-color: var(--maid-gold);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(9, 19, 51, .45);
+}
+.btn-primary:hover { filter: brightness(1.08); border-color: var(--maid-gold-soft); }
+[data-theme='light'] .btn-primary { background: linear-gradient(180deg, #5f79bd, #465f9f); }
+
+/* ══ 11. 设置页左栏：宽度与其它左栏一致（金框/竖缎带已按反馈撤掉） ══ */
+.settings-sidebar {
+  position: relative;
+  width: var(--maid-rail);
+  flex: 0 0 var(--maid-rail);
+  padding: 16px 14px 18px;
+  border-right: 1px solid rgba(151, 169, 216, .18);
+  background: linear-gradient(180deg, rgba(18, 32, 77, .74) 0%, rgba(13, 26, 66, .78) 70%, rgba(10, 21, 53, .82) 100%);
+  overflow-y: auto;
+}
+/* 设置左栏的导航按钮 */
+.settings-menu-item, .smi {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--tx);
+}
+.settings-menu-item:hover, .smi:hover { background: var(--hover); color: var(--tx); }
+.settings-menu-item.active, .smi.on {
+  color: var(--maid-gold-soft);
+  background: linear-gradient(90deg, rgba(197, 164, 104, .24), rgba(142, 165, 218, .10));
+  box-shadow: inset 0 0 0 1px rgba(197, 164, 104, .34);
+}
+.sg-l { color: rgba(197, 164, 104, .78); letter-spacing: .16em; }
+.settings-menu-item.egg-hot {
+  background: linear-gradient(180deg, var(--maid-gold-soft), #a8873f);
+  color: #1b1330;
+  border: 1px solid rgba(226, 207, 170, .8);
+}
+.settings-menu-item.egg-hot:hover { filter: brightness(1.06); color: #1b1330; }
+
+/* 「主题素材来源」：放在设置左栏「！？群群？！」下面，样式与其它菜单项一致 + 蝴蝶结图标 */
+.maid-source-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  color: var(--maid-gold-soft);
+  border: 1px solid rgba(197, 164, 104, .42);
+  background: rgba(9, 19, 51, .45);
+}
+.maid-source-btn::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  background: var(--art-bow) center / contain no-repeat;
+}
+.maid-source-btn:hover { color: #fff; border-color: var(--maid-gold); background: rgba(197, 164, 104, .18); }
+
+/* ══ 12. 技能 / 插件页：左侧列表 + 右侧详情（结构由 theme-maid-atelier.js 生成） ══ */
+.usage-pane.maid-master-host { display: flex; gap: 0; padding: 0; overflow: hidden; }
+.maid-master-rail {
+  flex: 0 0 var(--maid-rail);
+  width: var(--maid-rail);
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 10px 40px;
+  border-right: 1px solid rgba(151, 169, 216, .2);
+  background: linear-gradient(180deg, rgba(16, 30, 70, .80), rgba(9, 20, 52, .86));
+}
+.maid-master-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 26px 40px;
+  /* 技能 / 插件右栏也铺两位女仆（按反馈"两个小人背景"）。这里表单很长，
+     小人的尺寸压小一点；同样不用 backdrop-filter（整块面板实时模糊太贵）。 */
+  background:
+    var(--art-maid-left-soft) left bottom / auto 32% no-repeat,
+    var(--art-maid-right-soft) right bottom / auto 36% no-repeat,
+    linear-gradient(180deg, rgba(9, 18, 44, .66), rgba(6, 12, 32, .72)) 0 0 / 100% 100% no-repeat;
+}
+[data-theme='light'] .maid-master-rail {
+  background: linear-gradient(180deg, rgba(20, 38, 84, .55), rgba(12, 24, 60, .62));
+  border-right-color: rgba(197, 164, 104, .34);
+}
+/* 顶部：添加/刷新一行，搜索单独一行 —— 「添加」与「搜索」分开，下面才是跳转列表 */
+.maid-master-tools { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.maid-master-tools .maid-tool-row { display: flex; gap: 8px; align-items: center; }
+.maid-master-tools input[type='search'],
+.maid-master-tools input[type='text'] { flex: 1 1 auto; min-width: 0; }
+.maid-master-tools .maid-add-btn {
+  flex: 1 1 auto;
+  background: linear-gradient(180deg, var(--maid-gold-soft), #a8873f);
+  border-color: rgba(226, 207, 170, .9);
+  color: #1b1330;
+  font-weight: 700;
+}
+.maid-master-tools .maid-add-btn:hover { filter: brightness(1.06); color: #1b1330; }
+/* 分类：按反馈做成和群号一样的可折叠标题 */
+.maid-rail-group { margin-bottom: 2px; }
+.maid-rail-cat {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin: 10px 0 5px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: var(--maid-display);
+  font-size: 11.5px;
+  letter-spacing: .14em;
+  color: rgba(226, 207, 170, .88);
+  cursor: pointer;
+}
+.maid-rail-cat:hover { color: #fff; }
+.maid-rail-cat::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.7px solid currentColor;
+  border-bottom: 1.7px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform .22s var(--maid-curve-soft);
+}
+.maid-rail-group.collapsed .maid-rail-cat::before { transform: rotate(-45deg) translate(-1px, 1px); }
+.maid-rail-group.collapsed .maid-rail-items { display: none; }
+.maid-master-body .mcard-desc { font-size: 13.5px; line-height: 1.7; }
+.maid-master-body .mcard-tool-id { font-size: 11.5px; }
+/* 列表项 */
+.maid-rail-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 0 0 6px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  color: var(--tx);
+  background: linear-gradient(160deg, rgba(126, 156, 226, .24), rgba(28, 48, 104, .58));
+  border: 1px solid rgba(160, 185, 240, .2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14);
+}
+.maid-rail-item:hover { border-color: rgba(197, 164, 104, .42); }
+.maid-rail-item.on {
+  background: linear-gradient(160deg, rgba(226, 207, 170, .26), rgba(120, 148, 214, .22));
+  border-color: rgba(197, 164, 104, .6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 6px 16px rgba(3, 8, 26, .34);
+}
+.maid-rail-item.on .maid-rail-sub { color: rgba(233, 238, 252, .8); }
+.maid-rail-item .maid-rail-name { display: block; font-size: 13px; font-weight: 600; }
+.maid-rail-item .maid-rail-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--tx3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.maid-rail-item .maid-rail-state {
+  position: absolute;
+  top: 9px; right: 10px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--tx3);
+}
+.maid-rail-item .maid-rail-state.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.maid-rail-item .maid-rail-state.off { background: var(--tx3); }
+.maid-rail-item .maid-rail-state.err { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+
+/* ══ 13. 设置页「立即保存」按钮 ══
+   设置本来就是自动保存（改动后 ~0.6 秒落盘）；这个按钮调应用现成的
+   #settings-form.__settingsBound.flushSave() 立刻落盘并给出确认。
+   挂在 #view-settings（静态容器，永远不会被应用重写）上，用绝对定位脱开 flex 布局。 */
+#view-settings { position: relative; }
+.maid-save-dock {
+  position: absolute;
+  right: 26px;
+  bottom: 20px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 8px;
+  border-radius: 999px;
+  background: rgba(9, 19, 51, .62);
+  border: 1px solid rgba(197, 164, 104, .42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 26px rgba(3, 8, 26, .42);
+}
+.maid-save-btn {
+  background: linear-gradient(180deg, var(--maid-gold-soft), #a8873f);
+  border-color: rgba(226, 207, 170, .9);
+  color: #1b1330;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.maid-save-btn:hover { filter: brightness(1.06); color: #1b1330; }
+.maid-save-tip {
+  font-size: 12px;
+  color: var(--maid-gold-soft);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.maid-save-tip.show { opacity: 1; transform: none; }
+.maid-save-tip.ok { color: #8ee0b3; }
+
+/* ══ 13.5 技能 / 插件右栏详情面板 ══
+   结构：名字 + 版本号小字 / 简介 / 设置直接写在下面；
+   右上角是「徽章（点它启用/停用）+ 上传（放最右）」。
+   数据全部从应用自己的卡片里取，卡片本体隐藏但仍可被程序点击（复用应用的开关逻辑）。 */
+/* 卡片本体与分类标题都收起来：右栏改由 .maid-mod-panel 渲染详情 */
+.maid-master-body .mcard { display: none !important; }
+.maid-master-body .usage-h3 { display: none !important; }
+
+.maid-mod-panel {
+  position: relative;
+  margin: 4px 0 16px;
+  padding: 18px 20px 16px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(126, 156, 226, .16) 0%, rgba(20, 36, 80, .34) 100%);
+  border: 1px solid rgba(160, 185, 240, .22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+.maid-mod-panel.maid-rise { animation: maid-rise .5s var(--maid-curve) both; }
+/* 退出（点已选中的项返回）时淡出，而不是"啪"地消失 */
+.maid-mod-panel.maid-fading { animation: maid-fade-out .28s var(--maid-curve-soft) both; pointer-events: none; }
+@keyframes maid-fade-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(16px) scale(.99); }
+}
+.maid-mod-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-right: 190px; }
+.maid-mod-name { font-family: var(--maid-display); font-size: 19px; color: #fff; letter-spacing: .02em; }
+.maid-mod-ver { font-size: 11.5px; color: var(--tx3); font-family: var(--font-mono, monospace); }
+.maid-mod-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.maid-mod-tools code {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(9, 19, 51, .5);
+  border: 1px solid rgba(151, 169, 216, .22);
+  color: var(--tx2);
+}
+.maid-mod-desc { margin-top: 9px; font-size: 13.5px; line-height: 1.7; color: var(--tx2); }
+.maid-mod-status { margin-top: 9px; font-size: 11.5px; color: var(--tx3); }
+.maid-mod-err { margin-top: 8px; font-size: 12px; color: var(--err); }
+
+/* 右上角：徽章 + 上传（上传在最右） */
+.maid-mod-acts { position: absolute; top: 14px; right: 14px; display: flex; align-items: center; gap: 8px; }
+.maid-badge {
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.maid-badge.on {
+  color: #10204d;
+  background: linear-gradient(180deg, var(--maid-gold-soft), #a8873f);
+  border-color: rgba(226, 207, 170, .9);
+  box-shadow: 0 3px 10px rgba(3, 8, 26, .35);
+}
+/* 未启用：暗下去的徽章 */
+.maid-badge.off {
+  color: rgba(190, 203, 232, .62);
+  background: rgba(9, 19, 51, .55);
+  border-color: rgba(151, 169, 216, .24);
+  filter: saturate(.35) brightness(.9);
+}
+.maid-badge.err { color: var(--err); background: rgba(9, 19, 51, .55); border-color: var(--err-line); }
+.maid-mod-acts .mcard-upload { height: 28px; }
+
+/* 内联设置：把应用弹窗的外壳抹平，只留表单本体 */
+.maid-inline-settings { margin-top: 16px; }
+.maid-inline-settings:empty { display: none; }
+.maid-inline-settings .modal {
+  position: static;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  transform: none;
+  animation: none;
+}
+.maid-inline-settings .modal-head,
+.maid-inline-settings .modal-foot,
+.maid-inline-settings .modal-body { background: none; border: none; padding: 0; }
+.maid-inline-settings #skset-x,
+.maid-inline-settings #skset-cancel,
+.maid-inline-settings .modal-title { display: none; }
+/* 弹窗自带的标题区（名字/版本/id/简介）与面板重复，隐掉；保留"常用 N 项…"那行说明 */
+.maid-inline-settings .skill-modal__head { display: none; }
+.maid-inline-settings .skill-modal__foot-tip { display: none; }
+.maid-inline-settings .skill-modal__foot { justify-content: flex-end; }
+.maid-inline-settings #skset-save { margin-top: 10px; }
+.maid-inline-settings .maid-inline-title {
+  font-family: var(--maid-display);
+  font-size: 12px;
+  letter-spacing: .16em;
+  color: rgba(226, 207, 170, .85);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(151, 169, 216, .18);
+}
+
+/* 打开内容时：右半边从底部弹出来（不是闪现）。.maid-rise 只由脚本在"空 → 有内容"那一次挂上 */
+.detail-pane.maid-rise > * { animation: maid-rise .52s var(--maid-curve) both; }
+.detail-pane.maid-rise > *:nth-child(2) { animation-delay: .06s; }
+.detail-pane.maid-rise > *:nth-child(3) { animation-delay: .11s; }
+.detail-pane.maid-rise > *:nth-child(n + 4) { animation-delay: .16s; }
+/* 右侧内容退出时淡出（由脚本在清空前挂 .maid-exit） */
+.detail-pane.maid-exit > * { animation: maid-fade-out .24s ease both; }
+
+@keyframes maid-rise {
+  from { opacity: 0; transform: translateY(30px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ══ 14. 亮色主题下的「海军蓝外壳」就地换色 ══ */
+[data-theme='light'] :is(#topbar, #tabs, .list-pane, .settings-sidebar, .maid-master-rail, .maid-master-body) {
+  --tx: #e9eefc;
+  --tx2: #a9b8dd;
+  --tx3: #7d8fba;
+  --muted: #a9b8dd;
+  --faint: #7d8fba;
+  --text: #e9eefc;
+  --bd: rgba(151, 169, 216, .20);
+  --bd2: rgba(151, 169, 216, .34);
+  --border: rgba(151, 169, 216, .20);
+  /* 补上 --bg0：这套「亮色下的深蓝壳」只换了 --bg1/--bg2/--bg3，
+     漏掉 --bg0 会让壳内表单控件（.field/.skill-form 的 input/select/textarea）
+     用亮色主题的浅 --bg0 打底、却用壳内浅色 --tx 写字 —— 浅底浅字全隐形。 */
+  --bg0: #0d1a42;
+  --bg1: #12204d;
+  --bg2: #1a2b58;
+  --bg3: #21356a;
+  --layer-0: #0d1a42;
+  --layer-1: #12204d;
+  --layer-2: #182a58;
+  --layer-3: #21356a;
+  --hover: rgba(199, 214, 255, .06);
+  --active: rgba(199, 214, 255, .10);
+  --ac: #9bb0e1;
+  --accent: #9bb0e1;
+  --ac-soft: rgba(155, 176, 225, .16);
+  --ac-line: rgba(155, 176, 225, .42);
+  --err: #e79aa2;
+  --err-line: rgba(231, 154, 162, .45);
+  --on-accent: #16244f;
+  color: var(--tx);
+}
+[data-theme='light'] :is(.detail-pane, .usage-pane, .snowluma-pane, .fullpage, .settings-pane) {
+  color: var(--tx);
+}
+
+/* ══ 14. 窄窗保护 ══ */
+@media (max-width: 1180px) {
+  :root { --maid-rail: 260px; }
+  .detail-pane:has(.empty-hint) {
+    --maid-left-h: 58%;
+    --maid-left-x: 0%;
+    --maid-right-h: 62%;
+    --maid-right-x: 100%;
+  }
+  .settings-sidebar::after { display: none; }
+}
+@media (max-width: 900px) {
+  #topbar { height: 54px; padding: 0 12px; }
+  #tabs { padding: 0 10px; }
+  :root { --maid-rail: 232px; }
+  .empty-hint::before { width: 220px; height: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "read-document",
+  "name": "文档阅读（PDF / Word / PPT）",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "让机器人能读电脑里的 PDF、Word(.docx) 和 PowerPoint(.pptx)：从「文档文件夹」里找到文件、抽出正文，然后按你的要求总结或回答。纯本地读取，不联网、不上传。提供 doc_list / doc_read 两个工具。",
+  "author": "",
+  "enabledByDefault": true,
+  "requires": [],
+  "capabilities": [],
+  "settings": {
+    "documentsDir": "",
+    "maxChars": 12000,
+    "maxPages": 25,
+    "maxFileMB": 50
+  },
+  "configSchema": {
+    "documentsDir": {
+      "type": "string",
+      "label": "文档文件夹路径",
+      "description": "机器人默认去哪个文件夹找文档。留空 = QQ Agent 的 data/documents 文件夹（推荐，把文件丢进去就能用）。也可以填一个绝对路径，例如 D:\\\\我的资料。"
+    },
+    "maxChars": {
+      "type": "number",
+      "label": "单次最多返回多少字",
+      "description": "一次 doc_read 最多把多少字喂给机器人。默认 12000。太大既费 token 又容易挤掉聊天内容；不够读时可以调大，或让机器人续读（它会提示 offset）。"
+    },
+    "maxPages": {
+      "type": "number",
+      "label": "单次最多读多少页（PDF）",
+      "description": "只对 PDF 有效。默认 25 页，超出的部分本次不读，返回结果里会写明共几页。几十页的扫描件建议调小以免卡顿。"
+    },
+    "maxFileMB": {
+      "type": "number",
+      "label": "最大文件大小（MB）",
+      "description": "超过这个大小的文件直接拒绝解析并说明原因，避免卡死主程序。默认 50。"
+    }
+  },
+  "prompt": {
+    "sections": [
+      {
+        "id": "read-document-rules",
+        "title": "文档阅读",
+        "priority": 40,
+        "content": "用户提到某份文件、材料、报告、论文、PPT、讲义、通知、方案，或说“读一下/总结一下/看看这份 XX”时：先判断是在指本机文档文件夹里的文件，用 doc_list 看有哪些（不确定名字时先列表），再用 doc_read 读正文；用户直接给了文件路径时，doc_read 的 name 直接传路径。读到的内容按用户要求回答或总结，不要逐字复述全文。返回结果提示“还有 N 字没读”时，如果用户的问题需要那部分内容，再带 offset 继续读，不要凭猜测回答。若 doc_read 说明 PDF 是扫描件/图片型没有文字，如实告诉用户需要先做 OCR，不要编造内容。文件读不到时，把工具返回的原因原样告诉用户，不要假装已经读过。"
+      }
+    ]
+  }
+}

@@ -1,0 +1,46 @@
+/* bili-observer-diary 控制台页面样式（由插件自动安装/复制） */
+
+/* 刷B站（bili-observer-diary 插件设置页） */
+.bs-status {
+  white-space: pre-wrap; font-size: 12px; line-height: 1.7;
+  color: var(--tx2); background: var(--bg2); border: 1px solid var(--bd);
+  border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 10px;
+}
+.bs-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.bs-actions .muted { font-size: 12px; }
+.bs-subhead {
+  font-size: 13px; font-weight: 600; color: var(--tx2);
+  margin: 16px 0 8px; padding-top: 10px; border-top: 1px dashed var(--bd2);
+}
+
+/* 刷B站页（顶层页签） */
+.bili-wrap { max-width: 1000px; margin: 0 auto; }
+.bili-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.bili-head h2 { margin: 0 0 4px; font-size: 20px; }
+.bili-head .muted { font-size: 12.5px; }
+.bili-head-actions { display: flex; align-items: center; gap: 8px; }
+.bili-card {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  border: 1px solid var(--bd); background: var(--bg2);
+  border-radius: var(--r-md); padding: 12px 14px; margin-bottom: 10px;
+}
+.bili-card-title { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.bili-card-main .muted { font-size: 12px; }
+.bili-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.bili-qr-box {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 16px; margin-bottom: 12px;
+  border: 1px dashed var(--bd2); border-radius: var(--r-md); background: var(--bg1);
+}
+.bili-qr-box img {
+  width: 200px; height: 200px; image-rendering: pixelated;
+  background: #fff; border-radius: 10px; padding: 8px;
+}
+.bili-qr-box .muted { font-size: 12px; text-align: center; }
+.persona-role-text { min-height: 200px; font-size: 12.5px; line-height: 1.7; font-family: var(--font-mono); }

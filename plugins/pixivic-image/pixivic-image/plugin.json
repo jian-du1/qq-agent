@@ -1,0 +1,76 @@
+{
+  "id": "pixivic-image",
+  "name": "Pixiv 抽图机",
+  "version": "1.1.0",
+  "apiVersion": 1,
+  "category": "media",
+  "description": "发「#pix 角色名 提示词」就抽一张 Pixiv 图（例：#pix 心月狐 鸣潮）。搜角色名 → 按提示词筛标签 → 从候选里随机抽一张发出来。提示词可省略：只写「#pix 角色名」也照常出图，只是不筛标签、直接按角色名搜。看到命令就直接执行，不用模型判断。Pixivic 网站 token 有效期为 7 天，过期需自行获取并填写。",
+  "author": "QQ Agent 用户定制",
+  "enabledByDefault": true,
+  "permissions": [],
+  "settings": {
+    "commandPrefix": "#",
+    "triggerWord": "pix",
+    "pixivicToken": "",
+    "strictTag": true,
+    "autoSend": true,
+    "sendCaption": true,
+    "cooldownSeconds": 20,
+    "maxDim": 1600,
+    "targetKb": 1200
+  },
+  "configSchema": {
+    "commandPrefix": {
+      "type": "string",
+      "label": "命令前缀",
+      "description": "命令最前面的符号，默认「#」。填 / 或 ! 等单字符也行；留空表示命令不带前缀（直接写 pix 角色名）。"
+    },
+    "triggerWord": {
+      "type": "string",
+      "label": "命令词",
+      "description": "前缀后面的命令词，默认「pix」，即「#pix 角色名 提示词」。改成别的词（如 pic）就变成「#pic 角色名 提示词」。"
+    },
+    "pixivicToken": {
+      "type": "string",
+      "label": "Pixivic 登录 token（可选）",
+      "description": "Pixivic 的搜索接口需要登录。留空时会自动沿用「今日怎么样(command-anime)」插件里已填的 token；两个都没填则只能匹配它的 59 个热门标签，冷门角色搜不到。获取方法：浏览器打开 https://m.pixivic.net/ 登录后按 F12 → Application → Local Storage → 复制 sharemoe.auth.token 的值。⚠️ 这是账号凭据，别发给别人。token 有效期为 7 天，过期需重新获取并填写。",
+      "secret": true
+    },
+    "strictTag": {
+      "type": "boolean",
+      "label": "严格按标签筛选",
+      "description": "开启（默认）：只发真正命中提示词标签的图，宁可不发也不发不相关的（出图率会低一些）。关闭：命中的优先，数量不够时用没命中的补上（出图率更高，但可能不完全是你要的标签）。"
+    },
+    "autoSend": {
+      "type": "boolean",
+      "label": "自动发到群里",
+      "description": "开启（默认）：检索到就直接把图发出去。关闭：只检索不发送（调试用，结果写进 data/pixivic-image.log）。"
+    },
+    "sendCaption": {
+      "type": "boolean",
+      "label": "附带图片说明",
+      "description": "开启（默认）：发图后再跟一条文字（作品标题、角色名、图源、原图页地址）。关闭：只发图，更清爽。"
+    },
+    "cooldownSeconds": {
+      "type": "number",
+      "label": "同类命令冷却（秒）",
+      "description": "同一会话内两次「#pix」的最小间隔，防连点刷屏。0 = 不限制，默认 20。",
+      "min": 0,
+      "max": 600
+    },
+    "maxDim": {
+      "type": "number",
+      "label": "图片压缩最长边（像素）",
+      "description": "Pixiv 原图常有几 MB，压到 1600px 后约 200~400KB，发送更稳。640~4096。",
+      "min": 640,
+      "max": 4096
+    },
+    "targetKb": {
+      "type": "number",
+      "label": "图片压缩目标体积（KB）",
+      "description": "单张压到这个体积以下，200~8000，默认 1200KB。",
+      "min": 200,
+      "max": 8000
+    }
+  }
+}

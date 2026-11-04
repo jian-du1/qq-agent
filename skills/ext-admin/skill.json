@@ -1,0 +1,36 @@
+{
+  "id": "ext-admin",
+  "name": "扩展管理面板",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "category": "utility",
+  "description": "在 QQ 聊天里管理技能与插件：列出清单、查看详情、启用/停用、删除目录。仅主人可用。",
+  "author": "本地自建",
+  "enabledByDefault": true,
+  "settings": {
+    "allowRemove": false,
+    "maxList": 60
+  },
+  "configSchema": {
+    "allowRemove": {
+      "type": "boolean",
+      "label": "允许删除扩展",
+      "description": "开启后主人可以让机器人删除 skills/ 或 plugins/ 下的扩展目录（不可恢复，建议先备份）。默认关闭。"
+    },
+    "maxList": {
+      "type": "number",
+      "label": "列表最多显示几个",
+      "description": "默认 60。防止一次输出过长浪费 token。"
+    }
+  },
+  "prompt": {
+    "sections": [
+      {
+        "id": "ext-admin",
+        "title": "扩展管理",
+        "priority": 40,
+        "content": "主人问「装了哪些技能/插件」「为什么某个扩展没生效」「把某某扩展关了/开了/删掉」时，用 ext-admin 的工具处理。这些工具只对主人开放：调用前它会校验调用者 QQ，非主人会被直接拒绝。列清单或做改动之前不用解释原理，做完一句话回报结果即可；不要主动、定时地去摆弄扩展。"
+      }
+    ]
+  }
+}

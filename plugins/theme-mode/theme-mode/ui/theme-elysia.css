@@ -1,0 +1,2257 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   QQ Agent 控制台 · 爱莉希雅 · 粉色妖精主题（elysia）
+   ──────────────────────────────────────────────────────────────────────────
+   这是控制台的【展示层覆盖文件】，不是 skills/ 或 plugins/ 扩展。
+   扩展系统（skills / plugins）没有任何前端接口，改不了控制台外观，
+   所以主题必须落在 ui/ 里 —— 见 data/ui-theme-backup/说明.md。
+
+   视觉语言仿照 DSH 皮肤 maid-atelier 的结构；人物与壁纸素材来自
+   崩坏3《粉色妖精小姐》官方美术与画师同人图（Pixiv / B站专栏 / BoBoPic 等），
+   ⚠️ 角色与官方美术为米哈游（HoYoverse）IP，同人图版权归原画师。
+      本主题仅供个人非商业使用，请勿公开发布或传播；
+      完整素材清单与来源见 ui/themes/elysia/assets/NOTICE 与 assets/LICENSE-ARTWORK。
+
+   加载方式：ui/index.html 中在 /style.css 之后追加：
+       <link rel="stylesheet" href="/theme.css" />
+       <script defer src="/theme.js"></script>
+   关闭方式：删掉这两行 → 按 F5 立即恢复原样式，无需重启。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ══ 0. 素材路径 + 原始调色板 ══ */
+:root {
+  --art-corner: url("/themes/elysia/assets/corner.webp");
+  /* swag 已改为纯 CSS 帷幔（见 .ely-rail-swag） */
+  --art-swag: none;
+  --art-shield: url("/themes/elysia/assets/shield.webp");
+  /* ribbon 已改为纯 CSS 缎带（两端蝴蝶结 + 粉紫渐变） */
+  --art-ribbon: none;
+  /* frame 已改为纯 CSS 圆角粉晶按钮 */
+  --art-frame: none;
+  --art-palace-night: url("/themes/elysia/assets/palace-night.webp");
+  --art-palace-day: url("/themes/elysia/assets/palace-day.webp");
+  /* 左上角品牌图标（爱莉希雅 3D 特写，圆形裁切） */
+  --art-brand: url("/themes/elysia/assets/brand-icon.webp");
+
+  --ely-plum-950: #170b20;
+  --ely-plum-900: #221030;
+  --ely-plum-800: #2f1640;
+  --ely-plum-700: #3d1d4f;
+  --ely-blossom: #ffb7d9;
+  --ely-rose-gold: #f2a6c8;
+  --ely-porcelain: #fff4f9;
+  --ely-rose-gold: #f2a6c8;
+  --ely-rose-gold-soft: #ffd9ea;
+  --ely-ink: #57273f;
+  --ely-display: Georgia, "Songti SC", "Times New Roman", serif;
+  /* 曲线移动用的弹簧缓动（带一点点过冲，看起来像"甩过去"） */
+  --ely-curve: cubic-bezier(.34, 1.36, .5, 1);
+  --ely-curve-soft: cubic-bezier(.25, 1, .5, 1);
+  /* 左侧栏宽度：会话/存档/记忆/设置/技能插件四处必须一致。
+     应用会把用户拖拽后的宽度写到 .list-pane 的行内 --list-w，
+     脚本再把它同步进 --ely-rail；默认值按反馈压细一点，好让底部绶带比例正。 */
+  --ely-rail: 264px;
+}
+
+/* 女仆的位置/大小必须能在两种状态间做动画，所以注册成可插值的自定义属性
+   （未注册的普通自定义属性不可动画；Chromium 130 支持 @property）。 */
+@property --ely-left-h { syntax: '<percentage>'; inherits: false; initial-value: 70%; }
+@property --ely-left-x { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+@property --ely-right-h { syntax: '<percentage>'; inherits: false; initial-value: 60%; }
+@property --ely-right-x { syntax: '<percentage>'; inherits: false; initial-value: 100%; }
+/* 打开会话/存档/记忆时的背景压暗强度（0 = 原图全强度，不调色） */
+@property --ely-veil-a { syntax: '<number>'; inherits: false; initial-value: 0; }
+
+/* ══ 1. 暗色主题：夜之宫殿 ══ */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg0: #1a0d24;
+  --bg1: #241234;
+  --bg2: #2e183f;
+  --bg3: #3a1f4f;
+  --bd: #48235f;
+  --bd2: #61307e;
+  --tx: #fff7fb;
+  --tx2: #f2cfe2;
+  --tx3: #d6a7c4;
+
+  --ac: #ff9ecd;
+  --ac-soft: rgba(255, 158, 205, .16);
+  --ac-line: rgba(255, 158, 205, .44);
+
+  --ok: #63b48f;
+  --ok-line: rgba(99, 180, 143, .45);
+  --ok-soft: rgba(99, 180, 143, .12);
+  --warn: #d3b477;
+  --warn-line: rgba(211, 180, 119, .45);
+  --warn-soft: rgba(211, 180, 119, .12);
+  --err: #d98b93;
+  --err-line: rgba(217, 139, 147, .45);
+  --err-soft: rgba(217, 139, 147, .12);
+
+  --raise-1: 0 1px 2px rgba(10, 4, 16, .5);
+  --raise-3: 0 20px 58px rgba(2, 6, 20, .62), 0 2px 10px rgba(2, 6, 20, .45);
+  --hover: rgba(255, 190, 220, .055);
+  --overlay: rgba(10, 4, 16, .68);
+}
+
+/* ══ 2. 亮色主题：昼之宫殿 ══ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg0: #fff3f9;
+  --bg1: #ffffff;
+  --bg2: #fdf0f6;
+  --bg3: #fbe3ee;
+  --bd: #f0c6da;
+  --bd2: #e2a3c2;
+  --tx: #421a30;
+  --tx2: #773e5c;
+  --tx3: #96637f;
+
+  --ac: #d1508f;
+  --ac-soft: rgba(209, 80, 143, .12);
+  --ac-line: rgba(209, 80, 143, .40);
+
+  --ok: #2f8f6a;
+  --ok-line: rgba(47, 143, 106, .45);
+  --ok-soft: rgba(47, 143, 106, .09);
+  --warn: #a8842c;
+  --warn-line: rgba(168, 132, 44, .45);
+  --warn-soft: rgba(168, 132, 44, .10);
+  --err: #c2586a;
+  --err-line: rgba(194, 88, 106, .45);
+  --err-soft: rgba(194, 88, 106, .09);
+
+  --raise-1: 0 1px 3px rgba(15, 30, 72, .10);
+  --raise-3: 0 20px 56px rgba(15, 30, 72, .22), 0 2px 8px rgba(15, 30, 72, .12);
+  --hover: rgba(87, 39, 63, .045);
+  --overlay: rgba(23, 11, 32, .52);
+}
+
+/* ══ 3. 通用：字体、选区、滚动条 ══ */
+h1, h2, h3, h4 { font-family: var(--ely-display); letter-spacing: .002em; }
+::selection { background: rgba(242, 166, 200, .28); }
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 158, 205, .34);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ely-rose-gold); background-clip: content-box; }
+
+/* ══ 4. 顶栏：半透明亚克力 + 金色滚边（透出背后宫殿） ══ */
+#topbar {
+  height: 58px;
+  padding: 0 18px;
+  background:
+    linear-gradient(90deg, rgba(242, 166, 200, .22), var(--ely-rose-gold-soft), rgba(242, 166, 200, .22))
+      0 100% / 100% 1.5px no-repeat,
+    linear-gradient(180deg, rgba(49, 24, 68, .20) 0%, rgba(38, 18, 53, .17) 62%, rgba(29, 12, 40, .20) 100%) 0 0 / 100% 100% no-repeat;
+  box-shadow: 0 10px 26px rgba(10, 4, 16, .42);
+  color: var(--ely-porcelain);
+}
+.brand {
+  font-family: var(--ely-display);
+  font-size: 15.5px;
+  letter-spacing: .04em;
+  color: var(--ely-porcelain);
+  text-shadow: 0 1px 6px rgba(10, 4, 16, .6);
+}
+/* 左上角品牌图标：爱莉希雅 3D 特写，圆形裁切 */
+.brand::before {
+  content: '';
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--art-brand) center / 124% no-repeat;
+  border: 1px solid var(--ely-rose-gold);
+  box-shadow: 0 0 0 2px rgba(242, 166, 200, .25), 0 2px 8px rgba(10, 4, 16, .45);
+}
+.brand-sub { color: rgba(255, 217, 234, .74); letter-spacing: .06em; }
+#topbar .sep, .sep { background: rgba(255, 183, 217, .28); }
+
+.stat, #topbar .muted, .readiness-dots {
+  height: 29px;
+  background: rgba(23, 11, 32, .52);
+  border: 1px solid rgba(255, 158, 205, .28);
+  color: #efc4dc;
+}
+#topbar .muted:hover, .stat:hover, .readiness-dots:hover {
+  border-color: rgba(242, 166, 200, .62);
+  color: var(--ely-porcelain);
+}
+.icon-btn {
+  width: 29px; height: 29px;
+  background: rgba(23, 11, 32, .52);
+  border: 1px solid rgba(242, 166, 200, .42);
+  color: var(--ely-rose-gold-soft);
+}
+.icon-btn:hover {
+  border-color: var(--ely-rose-gold);
+  color: var(--ely-porcelain);
+  box-shadow: 0 0 12px rgba(242, 166, 200, .3);
+}
+
+/* ══ 5. 页签：上游真·蕾丝织带垂边 ══ */
+#tabs {
+  height: 56px;
+  padding: 0 16px;
+  background:
+    linear-gradient(180deg, rgba(43, 20, 56, .16) 0%, rgba(38, 18, 53, .13) 100%) 0 0 / 100% 100% no-repeat;
+  border-bottom: 1px solid rgba(255, 183, 217, .14);
+}
+.tab {
+  color: #f0c9dd;
+  letter-spacing: .03em;
+  text-shadow: 0 1px 4px rgba(10, 4, 16, .5);
+  transform-origin: center bottom;
+  transition: color .18s ease, transform .28s var(--ely-curve), text-shadow .28s ease;
+}
+.tab:hover { color: var(--ely-rose-gold-soft); }
+/* 选中：按反馈去掉"点 + 下划线"，改成弹出变大 + 描金发光 */
+.tab.active, .tab.on {
+  color: #fff;
+  z-index: 2;
+  transform: scale(1.16) translateY(-1px);
+  box-shadow: none;
+  text-shadow: 0 0 15px rgba(255, 217, 234, .8), 0 1px 4px rgba(10, 4, 16, .75);
+}
+.tab.active::after, .tab.on::after { content: none; }
+
+/* 右上角社区/市场按钮的完整样式集中在 §13.55（文件末尾），这里不再重复定义，
+   否则会被文末那组更完整的规则覆盖，改一处不生效容易踩坑。 */
+
+/* ══ 6. 主舞台：宫殿挂在**每个 view 自己**身上 ══
+   ⚠️ 之前挂在 #layout（所有 view 的共同父层），导致"会话开了 → 记忆的底也一起变暗"
+   —— 因为隐藏的 view 里的选中项一样会命中 :has()。改挂到 .view 上，
+   压暗状态就只作用于当前这个 view 自己（切页签互不影响）。 */
+#layout { position: relative; }
+
+/* 宫殿背景挂到 body：顶栏 / 页签 / 左栏 / 内容区全部压在它上面，
+   配合各面板的半透明亚克力（backdrop-filter）透出背景 —— 参考图三的效果。 */
+body {
+  background:
+    var(--art-palace-night) center bottom / cover no-repeat,
+    #1a0d24;
+}
+[data-theme='light'] body {
+  background:
+    var(--art-palace-day) center center / cover no-repeat,
+    #fff3f9;
+}
+
+.view {
+  --ely-veil-a: 0;
+  transition: --ely-veil-a .55s var(--ely-curve-soft);
+  background:
+    linear-gradient(180deg, rgb(23 11 32 / var(--ely-veil-a)), rgb(15 7 22 / var(--ely-veil-a)))
+      0 0 / 100% 100% no-repeat;
+}
+[data-theme='light'] .view {
+  /* 按反馈去掉顶部的白色光线（#fff3f9 顶部渐变），白天主题顶部不再泛白 */
+  background:
+    linear-gradient(180deg, rgb(255 243 249 / var(--ely-veil-a)), rgb(253 240 246 / var(--ely-veil-a)))
+      0 0 / 100% 100% no-repeat;
+}
+/* 只有"自己这个页面"里选中了东西才压暗 */
+#view-sessions:has(.session-item.selected),
+#view-chats:has(.chat-item.selected),
+#view-memory:has(.chat-item.selected) { --ely-veil-a: .78; }
+[data-theme='light'] #view-sessions:has(.session-item.selected),
+[data-theme='light'] #view-chats:has(.chat-item.selected),
+[data-theme='light'] #view-memory:has(.chat-item.selected) { --ely-veil-a: .82; }
+
+/* ══ 7. 左侧栏：半透明海军蓝 + 上游角花包边（最上层） ══ */
+.list-pane {
+  --list-w: var(--ely-rail);
+  /* 应用会把宽度直接写成行内 flex-basis/width，所以这里必须 !important 才能压过它。
+     拖拽依然有效：应用的拖拽器改 --list-w，脚本把它同步进 --ely-rail，宽度就跟着走。 */
+  width: var(--ely-rail) !important;
+  flex-basis: var(--ely-rail) !important;
+  border-right: none;
+  background:
+    linear-gradient(90deg, rgba(248, 246, 240, .04) 0, rgba(248, 246, 240, 0) 14px) 100% 0 / 100% 100% no-repeat,
+    linear-gradient(180deg, rgba(96, 50, 118, .05) 0%, rgba(70, 36, 96, .07) 68%, rgba(48, 24, 70, .09) 100%) 0 0 / 100% 100% no-repeat;
+}
+/* 亮色主题：白天背景亮，文字对比靠列表卡片自身，左栏也保持近乎透明 */
+[data-theme='light'] .list-pane {
+  background:
+    linear-gradient(90deg, rgba(248, 246, 240, .05) 0, rgba(248, 246, 240, 0) 14px) 100% 0 / 100% 100% no-repeat,
+    linear-gradient(180deg, rgba(84, 40, 108, .14) 0%, rgba(62, 30, 82, .17) 68%, rgba(40, 18, 60, .20) 100%) 0 0 / 100% 100% no-repeat;
+}
+[data-theme='light'] .settings-sidebar {
+  background: linear-gradient(180deg, rgba(48, 24, 68, .48) 0%, rgba(31, 16, 45, .52) 100%);
+}
+/* 表头：按反馈删掉标题文案（记忆 / 50 2212 / 消息存档）与下面的白色蕾丝带，
+   只留右侧的 群发 / 清空 按钮。用 font-size:0 让纯文本节点消失，再用按钮字号救回来。 */
+.list-head {
+  min-height: 40px;
+  padding: 7px 12px;
+  font-size: 0;
+  justify-content: flex-start;  /* 按反馈：群发 / 清空 移到最左手边 */
+  color: var(--ely-rose-gold-soft);
+  border-bottom: 1px solid rgba(255, 183, 217, .16);
+  /* 色块彻底移除：背景直接透出（与右侧一致），按钮保留 pill 色块 */
+  background: transparent;
+}
+/* font-size:0 让标题文本与计数（含 #session-count 这种 span）一起消失，只把按钮字号救回来 */
+.list-head-btn, .list-head .btn { font-size: 11.5px; }
+.list-head .list-head-btn { margin-left: 0 !important; }  /* 按反馈：移到最左手边 */
+.list-head-btn {
+  font-size: 11.5px;
+  border: 1px solid rgba(242, 166, 200, .4);
+  border-radius: 999px;
+  /* 底部色块保留：换成半透明粉调（与右侧按钮同风格） */
+  background: linear-gradient(180deg, rgba(255, 183, 217, .18), rgba(209, 80, 143, .18));
+  color: var(--ely-rose-gold-soft);
+  letter-spacing: .04em;
+}
+.list-head-btn:hover {
+  color: var(--ely-porcelain);
+  border-color: var(--ely-rose-gold);
+  background: rgba(242, 166, 200, .22);
+}
+/* 按反馈删掉左栏底部的"向下滚动加载更多（还有 N 条）"。
+   不用 display:none —— 保留元素在流里（应用可能拿它当滚动哨兵），只是看不见、不占高度。 */
+.list-pane .list-more {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  opacity: 0;
+  font-size: 0;
+  pointer-events: none;
+}
+
+/* 左侧栏四角描金包边 —— 原作做法：62×62 的框装 130×130 原图，四角各一份、用镜像
+   （transform: scaleX(-1) / scaleY(-1) / scale(-1)），角与角之间补竖金线。
+   由 theme-elysia.js 注入 <div class="ely-frame">。 */
+.ely-frame {
+  position: absolute;
+  inset: 0;
+  /* 按反馈放**最上层**：dock 上沿那层渐隐（z-index 8）不会再糊掉底部的金色包边 */
+  z-index: 10;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg,
+      transparent 62px,
+      rgba(255, 183, 217, .5) 62px,
+      rgba(255, 183, 217, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) 8px 0 / 1px 100% no-repeat,
+    linear-gradient(180deg,
+      transparent 62px,
+      rgba(255, 183, 217, .5) 62px,
+      rgba(255, 183, 217, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) calc(100% - 8px) 0 / 1px 100% no-repeat,
+    linear-gradient(90deg,
+      transparent 62px,
+      rgba(255, 183, 217, .5) 62px,
+      rgba(255, 183, 217, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) 0 8px / 100% 1px no-repeat,
+    linear-gradient(90deg,
+      transparent 62px,
+      rgba(255, 183, 217, .5) 62px,
+      rgba(255, 183, 217, .5) calc(100% - 62px),
+      transparent calc(100% - 62px)) 0 calc(100% - 8px) / 100% 1px no-repeat;
+}
+.ely-corner {
+  position: absolute;
+  width: 62px;
+  height: 62px;
+  background: var(--art-corner) top left / 130px 130px no-repeat;
+  filter: drop-shadow(0 1px 1px rgba(8, 3, 13, .42));
+  transform-origin: center;
+}
+.ely-corner.tl { top: 1px; left: 1px; }
+.ely-corner.tr { top: 1px; right: 1px; transform: scaleX(-1); }
+.ely-corner.br { right: 1px; bottom: 1px; transform: scale(-1); }
+.ely-corner.bl { bottom: 1px; left: 1px; transform: scaleY(-1); }
+
+/* ══ 8. 列表条目：磨砂蓝色玻璃 ══
+   ⚠️ 全列表 50+ 个条目，**不能用 backdrop-filter**（每项一次实时模糊 = 滚动/重绘卡顿）。
+   改成"更实的半透明渐变 + 内高光"来还原玻璃质感，观感几乎一致但几乎零成本。 */
+.session-item, .chat-item, .sitem {
+  position: relative;
+  isolation: isolate;            /* 让 ::after 的 z-index:-1 停在条目内部 */
+  margin: 0 10px 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background:
+    linear-gradient(160deg, rgba(255, 158, 205, .26) 0%, rgba(61, 29, 79, .60) 46%, rgba(26, 13, 36, .70) 100%);
+  border: 1px solid rgba(255, 183, 217, .22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    inset 0 -1px 0 rgba(23, 11, 32, .35),
+    0 6px 16px rgba(10, 4, 16, .26);
+}
+.session-item:hover, .chat-item:hover, .sitem:hover {
+  background:
+    linear-gradient(160deg, rgba(146, 176, 240, .30) 0%, rgba(97, 48, 126, .34) 46%, rgba(56, 28, 76, .38) 100%);
+  border-color: rgba(242, 166, 200, .38);
+}
+.session-item.selected, .chat-item.selected, .sitem.on {
+  background:
+    linear-gradient(160deg, rgba(255, 217, 234, .26) 0%, rgba(255, 158, 205, .22) 44%, rgba(63, 31, 84, .34) 100%);
+  border-color: rgba(242, 166, 200, .58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    0 8px 20px rgba(10, 4, 16, .34);
+}
+.session-item.selected::before, .chat-item.selected::before, .sitem.on::before {
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+  background: var(--ely-rose-gold);
+  box-shadow: 0 0 10px rgba(242, 166, 200, .85);
+}
+/* 选中态：金色磨砂玻璃 + 左侧金条（按反馈不再在子项上铺缎带 / 不再播淡入） */
+
+/* 分组头：可点击折叠（缎带作为"已展开"的指示，见下） */
+/* 会话列表 · 前方会话运行中排队提示条 */
+.ely-queue-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 10px 6px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 158, 205, 0.16), rgba(189, 120, 235, 0.13));
+  border: 1px solid rgba(255, 158, 205, 0.35);
+  color: #ffd9ec;
+  font-size: 12px;
+  line-height: 1.4;
+  backdrop-filter: blur(6px);
+  animation: ely-queue-in 0.35s ease-out;
+}
+@keyframes ely-queue-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.ely-queue-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff9ecd;
+  box-shadow: 0 0 8px rgba(255, 158, 205, 0.9);
+  animation: ely-queue-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ely-queue-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.78); }
+}
+.ely-queue-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 会话详情 · Token/成本统计卡 + 执行轨迹卡 */
+.ely-stat-card,
+.ely-trace-card {
+  margin: 10px 14px 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 158, 205, 0.32);
+  background: linear-gradient(135deg, rgba(255, 158, 205, 0.10), rgba(189, 120, 235, 0.08));
+  backdrop-filter: blur(6px);
+}
+.ely-stat-title {
+  font-family: var(--ely-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffc9e6;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+.ely-stat-sub { font-size: 11px; font-weight: 400; color: #b38cc4; margin-left: 6px; }
+.ely-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px 10px;
+}
+.ely-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ely-stat-label { font-size: 10.5px; color: #b38cc4; }
+.ely-stat-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffe1f2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ely-trace-card { margin-top: 10px; }
+.ely-trace-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 2px;
+  border-bottom: 1px dashed rgba(255, 158, 205, 0.16);
+  font-size: 12px;
+  color: #e6c4da;
+}
+.ely-trace-step:last-child { border-bottom: none; }
+.ely-trace-no {
+  flex: 0 0 auto;
+  font-family: var(--ely-display);
+  font-size: 11px;
+  color: #ff9ecd;
+  font-weight: 700;
+}
+.ely-trace-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.ely-trace-dur {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #c69ade;
+  font-variant-numeric: tabular-nums;
+}
+/* 调用工具明细卡 */
+.ely-tool-card {
+  margin: 10px 14px 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 158, 205, 0.32);
+  background: linear-gradient(135deg, rgba(255, 158, 205, 0.10), rgba(189, 120, 235, 0.08));
+  backdrop-filter: blur(6px);
+}
+.ely-tool-row {
+  padding: 8px 2px;
+  border-bottom: 1px dashed rgba(255, 158, 205, 0.18);
+  font-size: 12px;
+  color: #e6c4da;
+}
+.ely-tool-row:last-child { border-bottom: none; }
+.ely-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ffe1f2;
+}
+.ely-tool-status {
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.ely-tool-status.ok { background: rgba(116, 224, 174, 0.18); color: #7de6b4; }
+.ely-tool-status.err { background: rgba(255, 108, 128, 0.18); color: #ff9aac; }
+.ely-tool-dur {
+  margin-left: auto;
+  font-size: 11px;
+  color: #c69ade;
+  font-variant-numeric: tabular-nums;
+}
+.ely-tool-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #b38cc4;
+}
+.ely-tool-args {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #c9a8da;
+  font-family: ui-monospace, Consolas, monospace;
+  word-break: break-all;
+}
+.ely-tool-result {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #d9bfe6;
+  word-break: break-all;
+}
+.ely-tool-len { color: #9a7bb0; font-size: 10.5px; }
+.ely-price-btn {
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 158, 205, 0.45);
+  background: rgba(255, 158, 205, 0.12);
+  color: #ffc9e6;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ely-price-btn:hover { background: rgba(255, 158, 205, 0.24); }
+.ely-price-link { color: #ffb7d9; text-decoration: underline; cursor: pointer; }
+.ely-price-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(8, 3, 13, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ely-price-box {
+  width: 380px;
+  max-width: 92vw;
+  max-height: 80vh;
+  overflow: auto;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 158, 205, 0.5);
+  background: linear-gradient(160deg, #24142b, #1a0e22);
+  box-shadow: 0 12px 40px rgba(8, 3, 13, 0.7);
+  color: #ffe1f2;
+}
+.ely-price-title { font-size: 14px; font-weight: 700; color: #ffc9e6; margin-bottom: 6px; }
+.ely-price-tip { font-size: 11px; color: #b38cc4; margin-bottom: 10px; line-height: 1.5; }
+.ely-price-form { display: flex; gap: 8px; margin-bottom: 10px; }
+.ely-price-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 158, 205, 0.35);
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffe1f2;
+  font-size: 12px;
+}
+.ely-price-form button {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(255, 158, 205, 0.3);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ely-price-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.ely-price-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px dashed rgba(255, 158, 205, 0.2);
+  font-size: 12px;
+}
+.ely-price-list .ely-price-unit { color: #c69ade; }
+.ely-price-list .ely-price-tier {
+  color: #ffb7d9;
+  font-size: 11px;
+  background: rgba(255, 158, 205, 0.12);
+  padding: 0 6px;
+  border-radius: 8px;
+}
+.ely-price-empty { color: #8a6a9e; justify-content: center; border-bottom: none !important; }
+.ely-price-del {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 108, 128, 0.4);
+  background: rgba(255, 108, 128, 0.12);
+  color: #ff9aac;
+  font-size: 11px;
+  cursor: pointer;
+}
+#ely-pm-close {
+  width: 100%;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 158, 205, 0.4);
+  background: rgba(255, 158, 205, 0.1);
+  color: #ffc9e6;
+  font-size: 12px;
+  cursor: pointer;
+}
+#ely-pm-close:hover { background: rgba(255, 158, 205, 0.2); }
+
+
+.ely-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  min-height: 40px;              /* 与缎带同高 → 文字在缎带里垂直居中 */
+  margin: 7px 8px 3px;
+  padding: 3px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: var(--ely-display);
+  font-size: 12.5px;
+  letter-spacing: .06em;
+  color: var(--ely-rose-gold-soft);
+  text-shadow: 0 1px 3px rgba(10, 4, 16, .7);
+  cursor: pointer;
+}
+.ely-group-head:hover { color: var(--ely-porcelain); }
+/* 群号前的金鲸鱼纹章盾 */
+.ely-group-head::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 18px;
+  height: 24px;
+  background: var(--art-shield) center / contain no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(10, 4, 16, .5));
+}
+/* 折叠箭头 */
+.ely-group-head::after {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-left: 3px;
+  border-right: 1.7px solid rgba(255, 217, 234, .9);
+  border-bottom: 1.7px solid rgba(255, 217, 234, .9);
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform .22s var(--ely-curve-soft);
+}
+.ely-group.collapsed .ely-group-head::after { transform: rotate(-45deg) translate(-1px, 1px); }
+.ely-group.collapsed .ely-group-list { display: none; }
+.ely-group-name {
+  flex: 1 1 0;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+.ely-group-count {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  color: rgba(255, 217, 234, .8);
+}
+/* 子区：虚线列出该群下的会话 */
+.ely-group-list {
+  margin: 0 10px 4px 20px;
+  padding-left: 9px;
+  border-left: 1px dashed rgba(255, 183, 217, .34);
+}
+.ely-group-list > .session-item, .ely-group-list > .chat-item { margin-left: 0; margin-right: 0; }
+
+/* 缎带：**展开时显示、收起时没有**；两者之间就是"从左往右淡入"的过渡动画。
+   用 border-image 九宫格（原作同款）：左侧端帽固定在左，中段随左栏宽度拉伸，
+   所以缎带永远是"左端固定、右端跟着左栏一起变宽"，不会被整体拉变形。 */
+.ely-group { position: relative; z-index: 0; }
+.ely-group::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 0;
+  height: 40px;
+  z-index: -1;
+  box-sizing: border-box;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(242, 166, 200, .20), rgba(255, 183, 217, .12) 30%, rgba(255, 183, 217, .12) 70%, rgba(242, 166, 200, .20));
+  filter: drop-shadow(0 3px 7px rgba(8, 3, 13, .42));
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transition: opacity .44s var(--ely-curve-soft), clip-path .44s var(--ely-curve-soft);
+}
+.ely-group:not(.collapsed)::before { opacity: 1; clip-path: inset(0 0 0 0); }
+
+/* 展开时子页"弹出"：只在用户展开那一次由脚本挂 .ely-pop（应用重绘不会重放） */
+.ely-group.ely-pop .ely-group-list > * { animation: ely-pop .38s var(--ely-curve) both; }
+.ely-group.ely-pop .ely-group-list > *:nth-child(2) { animation-delay: .04s; }
+.ely-group.ely-pop .ely-group-list > *:nth-child(3) { animation-delay: .08s; }
+.ely-group.ely-pop .ely-group-list > *:nth-child(4) { animation-delay: .12s; }
+.ely-group.ely-pop .ely-group-list > *:nth-child(n + 5) { animation-delay: .16s; }
+@keyframes ely-pop {
+  from { opacity: 0; transform: translateY(-10px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 存档 / 记忆：条目做成和会话「母群号」头**一样的一行缎带**（同尺寸、同排布、同内容层级）：
+   [纹章盾] 群号 ……………………………… 统计信息 [删除]
+   选中态复用上面那条 ::after 缎带。 */
+.list-pane .chat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin: 4px 8px !important;
+  padding: 4px 8px 4px 4px;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.list-pane .chat-item::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 18px;
+  height: 24px;
+  background: var(--art-shield) center / contain no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(10, 4, 16, .5));
+}
+.list-pane .chat-item .chat-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.list-pane .chat-item .session-chat {
+  font-family: var(--ely-display);
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: var(--ely-rose-gold-soft);
+  text-shadow: 0 1px 3px rgba(10, 4, 16, .7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 收成一行 —— 内容层级与群号头一致；最后一条消息改挂在 title 上做悬浮提示 */
+.list-pane .chat-item .chat-item-sub { display: none; }
+.list-pane .chat-item .session-meta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: rgba(255, 217, 234, .8);
+}
+/* 记忆的删除按钮：由脚本搬到条目最右，并收成一个小 ✕ */
+.list-pane .chat-item > .ely-row-del {
+  margin-left: 6px;
+  flex: 0 0 auto;
+  order: 9;
+  padding: 0 8px !important;
+  font-size: 13px !important;
+  line-height: 1;
+  border-radius: 999px;
+}
+.list-pane .chat-item:hover { background: none; border: none; }
+
+/* 选中态缎带（展开 = 选中、收起 = 未选中），同样从左往右淡入、铺在文字底下 */
+.list-pane .chat-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  box-sizing: border-box;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(242, 166, 200, .20), rgba(255, 183, 217, .12) 30%, rgba(255, 183, 217, .12) 70%, rgba(242, 166, 200, .20));
+  opacity: 0;
+  clip-path: inset(0 100% 0 0);
+  transition: opacity .44s var(--ely-curve-soft), clip-path .44s var(--ely-curve-soft);
+}
+.list-pane .chat-item.selected::after { opacity: 1; clip-path: inset(0 0 0 0); }
+
+/* ⚠️ 应用的列表是整块 innerHTML 重绘的：新行"一出生"就带着 .selected，
+   CSS transition 不会有起始态 → 看不到淡入；取消选中时新行直接没有 .selected
+   → 也看不到淡出。所以由脚本在"选中项真的变了"时挂一次性动画类。 */
+.list-pane .chat-item.ely-fade-in::after { animation: ely-ribbon-in .48s var(--ely-curve-soft) both; }
+.list-pane .chat-item.ely-fade-out::after { animation: ely-ribbon-out .36s var(--ely-curve-soft) both; }
+@keyframes ely-ribbon-in {
+  from { opacity: 0; clip-path: inset(0 100% 0 0); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+@keyframes ely-ribbon-out {
+  from { opacity: 1; clip-path: inset(0 0 0 0); }
+  to { opacity: 0; clip-path: inset(0 100% 0 0); }
+}
+
+/* ══ 8.5 左栏底部：先虚化 → 横缎带 → 跳转设置按钮 ══
+   这是原作侧栏底部的布局（原作是「U 形虚化 + 缎带 + 设置板」）。
+   缎带用原作同款 border-image 九宫格：只拉伸中段，两端端帽保持原比例，
+   所以不会被拉变形；整体再按反馈往右挪约 3 个字符宽。 */
+/* 底部渐隐：**不用 mask**（mask + 滚动容器会让每帧多一层合成，滚动会卡），
+   改成 dock 上沿一层不参与滚动的渐变覆盖，成本几乎为零。 */
+.ely-rail-dock::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -54px;
+  height: 54px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(26, 13, 36, 0), rgba(24, 12, 34, .85) 62%, rgba(21, 10, 30, .96));
+}
+.ely-rail-dock {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 8;
+  /* 左右 16px：给缎带留出与金线的呼吸位（金线在 8px 处），缎带本身仍是原比例
+     底部 38px：给包边的下角留位（角花实际只画在角上约 31px 范围） */
+  padding: 0 16px 38px;
+}
+/* 左栏底部的分割：蕾丝 + 蝴蝶结绶带（sidebar-swag）。
+   **保持素材原始比例**（1200/303），只用 aspect-ratio 跟着左栏宽度整体缩放 ——
+   绝不压扁、不裁剪。宽度取 dock 的内容宽（左栏宽 - 32px），比"顶满两条金线"那版小一圈。 */
+.ely-rail-swag {
+  display: none;
+}
+/* 左栏底部"设置"入口：按反馈整体移除（会话/存档/记忆三个列表共用），
+   消息列表即可多用一整行高度正常展示。 */
+.list-pane .ely-rail-dock { display: none !important; }
+
+/* 「设置」按钮：用上游 settings-frame 当横向画框。
+   原作写法：border-image-slice: 0 220 0 220 fill（只取左右两端、中段拉伸），
+   padding-inline: 34px 让文字避开左右端帽 —— 这就是"不要顶格、不被边框遮挡"。 */
+.ely-rail-goto {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: calc(100% - 24px);
+  margin: 0 12px;
+  min-height: 44px;
+  padding: 0 22px;
+  border: 1px solid rgba(242, 166, 200, .55);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 183, 217, .16), rgba(209, 80, 143, .16));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 4px 10px rgba(8, 3, 13, .3);
+  font-family: var(--ely-display);
+  font-size: 12.5px;
+  letter-spacing: .12em;
+  color: var(--ely-rose-gold-soft);
+  transition: filter .16s ease, color .16s ease, border-color .16s ease;
+}
+.ely-rail-goto:hover { color: #fff; border-color: var(--ely-rose-gold); filter: brightness(1.12); }
+.ely-rail-goto::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  background: var(--art-corner) center / contain no-repeat;
+  opacity: .95;
+}
+/* 设置页左栏四角装饰：按用户要求移除 */
+.settings-sidebar > .ely-frame { display: none !important; }
+
+/* ══ 9. 详情区（会话 / 存档 / 记忆的右半边）
+   空状态：完全透明 → 宫殿与女仆全强度。
+   打开内容：整块变成「薄透明面板」，正文压在上面就看得清。
+   右侧立绘已 DOM 化（theme-elysia.js 注入 .ely-fig-wrap，见下）：
+   支持点击气泡 + 伪 Live2D 呼吸；空状态全尺寸、打开内容自动变淡。 */
+.detail-pane {
+  position: relative;
+  /* 必须显式透明：否则会漏出应用自带的实心深底色 #1a0d24（黑块） */
+  background: transparent;
+  transition:
+    background-color .45s ease,
+    box-shadow .45s ease;
+}
+.detail-pane:has(.empty-hint) .ely-fig-wrap { height: 30%; }
+/* 打开内容 → 薄透明 + 立绘改回面板背景（背景不随内容滚动 → 立绘始终贴底，
+   展开状态不需要交互，DOM 立绘整体隐藏） */
+.detail-pane:not(:has(.empty-hint)) {
+  /* 展开时隐藏小人（含淡版立绘背景），只留薄透明底 */
+  background: rgba(9, 18, 44, .18);
+  border-radius: 16px 0 0 16px;
+  box-shadow:
+    inset 0 0 0 1px rgba(242, 166, 200, .26),
+    inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+.detail-pane:not(:has(.empty-hint)) .ely-fig-wrap { display: none; }
+[data-theme='light'] .detail-pane:not(:has(.empty-hint)) {
+  background-image: none;
+  background-color: rgba(250, 252, 255, .22);
+  box-shadow:
+    inset 0 0 0 1px rgba(82, 106, 168, .22),
+    inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+/* 其余全宽页（设置/用量/技能/插件/SnowLuma）改成半透明亚克力，
+   宫殿与立绘透过面板若隐若现，背景虚化保证正文可读 */
+[data-theme='dark'] :is(.usage-pane, .snowluma-pane, .fullpage, .settings-pane) {
+  background:
+    radial-gradient(940px 430px at 50% -10%, rgba(255, 158, 205, .16), rgba(255, 158, 205, 0) 70%),
+    radial-gradient(620px 300px at 10% -4%, rgba(242, 166, 200, .09), rgba(242, 166, 200, 0) 72%),
+    linear-gradient(180deg, rgba(13, 26, 66, .20) 0%, rgba(26, 13, 36, .18) 44%, rgba(8, 16, 39, .22) 100%),
+    rgba(26, 13, 36, .32);
+}
+[data-theme='light'] :is(.usage-pane, .snowluma-pane, .fullpage, .settings-pane) {
+  background:
+    radial-gradient(1000px 470px at 50% -14%, rgba(255, 255, 255, .55), rgba(255, 255, 255, 0) 70%),
+    radial-gradient(720px 340px at 90% 2%, rgba(255, 158, 205, .14), rgba(255, 158, 205, 0) 72%),
+    linear-gradient(180deg, rgba(253, 240, 246, .28) 0%, rgba(251, 227, 238, .26) 46%, rgba(247, 220, 236, .30) 100%),
+    rgba(255, 243, 249, .38);
+}
+
+/* 空状态提示：按反馈删掉中间的蝴蝶结条带与"← 选择左侧会话…"提示文案。
+   只静音"←"开头的占位提示（应用自己写的），加载失败等真实提示照旧显示。 */
+.empty-hint { color: var(--tx3); letter-spacing: .06em; text-shadow: 0 1px 8px rgba(10, 4, 16, .7); }
+[data-theme='light'] .empty-hint { text-shadow: 0 1px 8px rgba(255, 255, 255, .9); }
+.detail-pane > .empty-hint.ely-silent { display: none; }
+
+/* ══ 10. 卡片 / 输入 / 按钮 ══ */
+.card, .scard, .prompt-preview-card, .health-card, .price-card,
+.usage-card, .metric, .settings-runstate {
+  background-color: var(--bg1);
+  background-image: linear-gradient(180deg, rgba(242, 166, 200, .10), rgba(242, 166, 200, 0) 46%);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-md);
+  box-shadow: var(--raise-1);
+}
+[data-theme='light'] .card, [data-theme='light'] .scard,
+[data-theme='light'] .usage-card, [data-theme='light'] .metric,
+[data-theme='light'] .settings-runstate {
+  border-color: #dbe3f2;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+select, textarea {
+  background: var(--bg2);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+}
+input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+select:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(242, 166, 200, .72);
+  box-shadow: 0 0 0 3px rgba(242, 166, 200, .16);
+}
+
+.btn {
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--bd2);
+}
+.btn:hover { border-color: var(--ely-rose-gold); }
+.btn-primary {
+  background: linear-gradient(180deg, #c44d8c, #a8386f);
+  border-color: var(--ely-rose-gold);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(23, 11, 32, .45);
+}
+.btn-primary:hover { filter: brightness(1.08); border-color: var(--ely-rose-gold-soft); }
+[data-theme='light'] .btn-primary { background: linear-gradient(180deg, #c44d8c, #a8386f); }
+
+/* ══ 11. 设置页左栏：宽度与其它左栏一致（金框/竖缎带已按反馈撤掉） ══ */
+.settings-sidebar {
+  position: relative;
+  width: var(--ely-rail);
+  flex: 0 0 var(--ely-rail);
+  padding: 16px 14px 18px;
+  border-right: 1px solid rgba(255, 183, 217, .18);
+  background: linear-gradient(180deg, rgba(48, 24, 68, .74) 0%, rgba(36, 18, 50, .78) 70%, rgba(10, 21, 53, .82) 100%);
+  overflow-y: auto;
+}
+/* 设置左栏的导航按钮 */
+.settings-menu-item, .smi {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--tx);
+}
+.settings-menu-item:hover, .smi:hover { background: var(--hover); color: var(--tx); }
+.settings-menu-item.active, .smi.on {
+  color: var(--ely-rose-gold-soft);
+  background: linear-gradient(90deg, rgba(242, 166, 200, .24), rgba(255, 158, 205, .10));
+  box-shadow: inset 0 0 0 1px rgba(242, 166, 200, .34);
+}
+.sg-l { color: rgba(242, 166, 200, .78); letter-spacing: .16em; }
+.settings-menu-item.egg-hot {
+  background: linear-gradient(180deg, var(--ely-rose-gold-soft), #c76f9f);
+  color: #2a1030;
+  border: 1px solid rgba(255, 217, 234, .8);
+}
+.settings-menu-item.egg-hot:hover { filter: brightness(1.06); color: #2a1030; }
+
+/* ══ 12. 技能 / 插件页：左侧列表 + 右侧详情（结构由 theme-elysia.js 生成） ══ */
+.usage-pane.ely-master-host { display: flex; gap: 0; padding: 0; overflow: hidden; }
+.ely-master-rail {
+  flex: 0 0 var(--ely-rail);
+  width: var(--ely-rail);
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 10px 40px;
+  border-right: 1px solid rgba(255, 183, 217, .2);
+  background: linear-gradient(180deg, rgba(44, 22, 62, .28), rgba(9, 20, 52, .32));
+}
+.ely-master-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 26px 40px;
+  /* 技能 / 插件右栏：按用户要求隐藏右下角立绘，仅保留渐变底 */
+  background:
+    linear-gradient(180deg, rgba(9, 18, 44, .24), rgba(6, 12, 32, .26)) 0 0 / 100% 100% no-repeat;
+}
+[data-theme='light'] .ely-master-rail {
+  background: linear-gradient(180deg, rgba(56, 28, 76, .30), rgba(12, 24, 60, .34));
+  border-right-color: rgba(242, 166, 200, .34);
+}
+/* 顶部：添加/刷新一行，搜索单独一行 —— 「添加」与「搜索」分开，下面才是跳转列表 */
+.ely-master-tools { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.ely-master-tools .ely-tool-row { display: flex; gap: 8px; align-items: center; }
+.ely-master-tools input[type='search'],
+.ely-master-tools input[type='text'] { flex: 1 1 auto; min-width: 0; }
+.ely-master-tools .ely-add-btn {
+  flex: 1 1 auto;
+  background: linear-gradient(180deg, var(--ely-rose-gold-soft), #c76f9f);
+  border-color: rgba(255, 217, 234, .9);
+  color: #2a1030;
+  font-weight: 700;
+}
+.ely-master-tools .ely-add-btn:hover { filter: brightness(1.06); color: #2a1030; }
+/* 分类：按反馈做成和群号一样的可折叠标题 */
+.ely-rail-group { margin-bottom: 2px; }
+.ely-rail-cat {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin: 10px 0 5px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: var(--ely-display);
+  font-size: 11.5px;
+  letter-spacing: .14em;
+  color: rgba(255, 217, 234, .88);
+  cursor: pointer;
+}
+.ely-rail-cat:hover { color: #fff; }
+.ely-rail-cat::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.7px solid currentColor;
+  border-bottom: 1.7px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform .22s var(--ely-curve-soft);
+}
+.ely-rail-group.collapsed .ely-rail-cat::before { transform: rotate(-45deg) translate(-1px, 1px); }
+.ely-rail-group.collapsed .ely-rail-items { display: none; }
+.ely-master-body .mcard-desc { font-size: 13.5px; line-height: 1.7; }
+.ely-master-body .mcard-tool-id { font-size: 11.5px; }
+/* 列表项 */
+.ely-rail-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 0 0 6px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  color: var(--tx);
+  background: linear-gradient(160deg, rgba(255, 158, 205, .24), rgba(77, 39, 102, .58));
+  border: 1px solid rgba(255, 183, 217, .2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14);
+}
+.ely-rail-item:hover { border-color: rgba(242, 166, 200, .42); }
+.ely-rail-item.on {
+  background: linear-gradient(160deg, rgba(255, 217, 234, .26), rgba(255, 158, 205, .22));
+  border-color: rgba(242, 166, 200, .6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 6px 16px rgba(10, 4, 16, .34);
+}
+.ely-rail-item.on .ely-rail-sub { color: rgba(233, 238, 252, .8); }
+.ely-rail-item .ely-rail-name { display: block; font-size: 13px; font-weight: 600; }
+.ely-rail-item .ely-rail-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--tx3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ely-rail-item .ely-rail-state {
+  position: absolute;
+  top: 9px; right: 10px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--tx3);
+}
+.ely-rail-item .ely-rail-state.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ely-rail-item .ely-rail-state.off { background: var(--tx3); }
+.ely-rail-item .ely-rail-state.err { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+
+/* ══ 13. 设置页「立即保存」按钮 ══
+   设置本来就是自动保存（改动后 ~0.6 秒落盘）；这个按钮调应用现成的
+   #settings-form.__settingsBound.flushSave() 立刻落盘并给出确认。
+   挂在 #view-settings（静态容器，永远不会被应用重写）上，用绝对定位脱开 flex 布局。 */
+#view-settings { position: relative; }
+.ely-save-dock {
+  position: absolute;
+  right: 26px;
+  bottom: 20px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px 7px 8px;
+  border-radius: 999px;
+  background: rgba(23, 11, 32, .62);
+  border: 1px solid rgba(242, 166, 200, .42);
+  box-shadow: 0 10px 26px rgba(10, 4, 16, .42);
+}
+.ely-save-btn {
+  background: linear-gradient(180deg, var(--ely-rose-gold-soft), #c76f9f);
+  border-color: rgba(255, 217, 234, .9);
+  color: #2a1030;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.ely-save-btn:hover { filter: brightness(1.06); color: #2a1030; }
+.ely-save-tip {
+  font-size: 12px;
+  color: var(--ely-rose-gold-soft);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.ely-save-tip.show { opacity: 1; transform: none; }
+.ely-save-tip.ok { color: #8ee0b3; }
+
+/* ══ 13.5 技能 / 插件右栏详情面板 ══
+   结构：名字 + 版本号小字 / 简介 / 设置直接写在下面；
+   右上角是「徽章（点它启用/停用）+ 上传（放最右）」。
+   数据全部从应用自己的卡片里取，卡片本体隐藏但仍可被程序点击（复用应用的开关逻辑）。 */
+/* 卡片本体与分类标题都收起来：右栏改由 .ely-mod-panel 渲染详情 */
+.ely-master-body .mcard { display: none !important; }
+.ely-master-body .usage-h3 { display: none !important; }
+
+.ely-mod-panel {
+  position: relative;
+  margin: 4px 0 16px;
+  padding: 18px 20px 16px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(255, 158, 205, .16) 0%, rgba(52, 26, 70, .34) 100%);
+  border: 1px solid rgba(255, 183, 217, .22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+.ely-mod-panel.ely-rise { animation: ely-rise .5s var(--ely-curve) both; }
+/* 退出（点已选中的项返回）时淡出，而不是"啪"地消失 */
+.ely-mod-panel.ely-fading { animation: ely-fade-out .28s var(--ely-curve-soft) both; pointer-events: none; }
+@keyframes ely-fade-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(16px) scale(.99); }
+}
+.ely-mod-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-right: 190px; }
+.ely-mod-name { font-family: var(--ely-display); font-size: 19px; color: #fff; letter-spacing: .02em; }
+.ely-mod-ver { font-size: 11.5px; color: var(--tx3); font-family: var(--font-mono, monospace); }
+.ely-mod-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.ely-mod-tools code {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(23, 11, 32, .5);
+  border: 1px solid rgba(255, 183, 217, .22);
+  color: var(--tx2);
+}
+.ely-mod-desc { margin-top: 9px; font-size: 13.5px; line-height: 1.7; color: var(--tx2); }
+.ely-mod-status { margin-top: 9px; font-size: 11.5px; color: var(--tx3); }
+.ely-mod-err { margin-top: 8px; font-size: 12px; color: var(--err); }
+
+/* 右上角：徽章 + 上传（上传在最右） */
+.ely-mod-acts { position: absolute; top: 14px; right: 14px; display: flex; align-items: center; gap: 8px; }
+.ely-badge {
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.ely-badge.on {
+  color: #2f1640;
+  background: linear-gradient(180deg, var(--ely-rose-gold-soft), #c76f9f);
+  border-color: rgba(255, 217, 234, .9);
+  box-shadow: 0 3px 10px rgba(10, 4, 16, .35);
+}
+/* 未启用：暗下去的徽章 */
+.ely-badge.off {
+  color: rgba(190, 203, 232, .62);
+  background: rgba(23, 11, 32, .55);
+  border-color: rgba(255, 183, 217, .24);
+  filter: saturate(.35) brightness(.9);
+}
+.ely-badge.err { color: var(--err); background: rgba(23, 11, 32, .55); border-color: var(--err-line); }
+.ely-mod-acts .mcard-upload { height: 28px; }
+
+/* 内联设置：把应用弹窗的外壳抹平，只留表单本体 */
+.ely-inline-settings { margin-top: 16px; }
+.ely-inline-settings:empty { display: none; }
+.ely-inline-settings .modal {
+  position: static;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  transform: none;
+  animation: none;
+}
+.ely-inline-settings .modal-head,
+.ely-inline-settings .modal-foot,
+.ely-inline-settings .modal-body { background: none; border: none; padding: 0; }
+.ely-inline-settings #skset-x,
+.ely-inline-settings #skset-cancel,
+.ely-inline-settings .modal-title { display: none; }
+/* 弹窗自带的标题区（名字/版本/id/简介）与面板重复，隐掉；保留"常用 N 项…"那行说明 */
+.ely-inline-settings .skill-modal__head { display: none; }
+.ely-inline-settings .skill-modal__foot-tip { display: none; }
+.ely-inline-settings .skill-modal__foot { justify-content: flex-end; }
+.ely-inline-settings #skset-save { margin-top: 10px; }
+.ely-inline-settings .ely-inline-title {
+  font-family: var(--ely-display);
+  font-size: 12px;
+  letter-spacing: .16em;
+  color: rgba(255, 217, 234, .85);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 183, 217, .18);
+}
+
+/* 打开内容时：右半边从底部弹出来（不是闪现）。.ely-rise 只由脚本在"空 → 有内容"那一次挂上 */
+.detail-pane.ely-rise > * { animation: ely-rise .52s var(--ely-curve) both; }
+.detail-pane.ely-rise > *:nth-child(2) { animation-delay: .06s; }
+.detail-pane.ely-rise > *:nth-child(3) { animation-delay: .11s; }
+.detail-pane.ely-rise > *:nth-child(n + 4) { animation-delay: .16s; }
+/* 右侧内容退出时淡出（由脚本在清空前挂 .ely-exit） */
+.detail-pane.ely-exit > * { animation: ely-fade-out .24s ease both; }
+
+@keyframes ely-rise {
+  from { opacity: 0; transform: translateY(30px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ══ 14. 亮色主题下的「海军蓝外壳」就地换色 ══ */
+[data-theme='light'] :is(#topbar, #tabs, .list-pane, .settings-sidebar, .ely-master-rail, .ely-master-body) {
+  --tx: #fdeaf5;
+  --tx2: #e3b7cf;
+  --tx3: #bd92ab;
+  --muted: #e3b7cf;
+  --faint: #bd92ab;
+  --text: #fdeaf5;
+  --bd: rgba(255, 183, 217, .20);
+  --bd2: rgba(255, 183, 217, .34);
+  --border: rgba(255, 183, 217, .20);
+  /* 补上 --bg0：这套「亮色下的深蓝壳」只换了 --bg1/--bg2/--bg3，
+     漏掉 --bg0 会让壳内表单控件（.field/.skill-form 的 input/select/textarea）
+     用亮色主题的浅 --bg0 打底、却用壳内浅色 --tx 写字 —— 浅底浅字全隐形。 */
+  --bg0: #2e183f;
+  --bg1: #341a46;
+  --bg2: #3a1f4f;
+  --bg3: #47265f;
+  --layer-0: #2e183f;
+  --layer-1: #341a46;
+  --layer-2: #3a1f4f;
+  --layer-3: #47265f;
+  --hover: rgba(255, 190, 220, .06);
+  --active: rgba(255, 190, 220, .10);
+  --ac: #ff9ecd;
+  --accent: #ff9ecd;
+  --ac-soft: rgba(255, 158, 205, .16);
+  --ac-line: rgba(255, 158, 205, .42);
+  --err: #f09aa8;
+  --err-line: rgba(240, 154, 168, .45);
+  --on-accent: #241230;
+  color: var(--tx);
+}
+[data-theme='light'] :is(.detail-pane, .usage-pane, .snowluma-pane, .fullpage, .settings-pane) {
+  color: var(--tx);
+}
+
+/* ══ 13.5 右侧立绘 DOM 化：可点击 + 伪 Live2D + 今日花费气泡 ══ */
+.ely-fig-wrap {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 60%;
+  aspect-ratio: 707 / 700;
+  z-index: 0;
+  pointer-events: none;
+}
+.detail-pane .ely-fig-wrap { height: 60%; }
+@media (max-width: 1180px) {
+  .detail-pane:has(.empty-hint) .ely-fig-wrap { height: 27%; }
+}
+.ely-fig {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: none;
+  /* 动图自带动作：关掉伪 Live2D 呼吸，避免双重动画 */
+  filter: drop-shadow(0 6px 18px rgba(255, 158, 205, .25));
+}
+.ely-fig.dragging { cursor: grabbing; }
+/* 展开状态无 DOM 立绘：无交互、无动画（见上） */
+.detail-pane:not(:has(.empty-hint)) .ely-fig { display: none; }
+@keyframes ely-fig-breathe {
+  0%, 100% { transform: scale(1, 1) rotate(0deg); }
+  50% { transform: scale(1.014, 1.022) rotate(.4deg); }
+}
+/* 除立绘外的所有直接子元素都压在立绘上面（正文可读） */
+.detail-pane > *:not(.ely-fig-wrap) { position: relative; z-index: 1; }
+/* 空状态提示只是占位文字：不拦截鼠标，点击穿透到立绘 */
+.detail-pane .empty-hint { pointer-events: none; }
+
+.ely-fig-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 20px);
+  transform: translateX(-50%) translateY(6px) scale(.92);
+  transform-origin: 50% 100%;
+  min-width: 138px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 240, 248, .97), rgba(255, 219, 234, .97));
+  border: 1px solid rgba(255, 183, 217, .85);
+  box-shadow: 0 8px 22px rgba(120, 30, 80, .35), 0 0 0 4px rgba(255, 183, 217, .18);
+  text-align: center;
+  color: #7a2a58;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .22s ease, transform .22s cubic-bezier(.34, 1.36, .5, 1), visibility .22s;
+}
+.ely-fig-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  transform: translateX(-50%);
+  border: 8px solid transparent;
+  border-top-color: rgba(255, 227, 240, .98);
+  border-bottom: none;
+}
+.ely-fig-wrap.open .ely-fig-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+.ely-fig-bubble-title { font-size: 11px; letter-spacing: .16em; color: rgba(122, 42, 88, .72); }
+.ely-fig-bubble-fee { font-size: 18px; font-weight: 700; color: #c2338a; margin: 2px 0 3px; }
+.ely-fig-bubble-sub { font-size: 10.5px; color: rgba(122, 42, 88, .82); line-height: 1.45; }
+
+/* ══ 14. 窄窗保护 ══ */
+@media (max-width: 1180px) {
+  :root { --ely-rail: 260px; }
+  .detail-pane:has(.empty-hint) {
+    --ely-right-h: 58%;
+    --ely-right-x: 100%;
+  }
+  .settings-sidebar::after { display: none; }
+}
+@media (max-width: 900px) {
+  #topbar { height: 54px; padding: 0 12px; }
+  #tabs { padding: 0 10px; }
+  :root { --ely-rail: 232px; }
+  .empty-hint::before { width: 220px; height: 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ══ 13.55 右上角社区/市场按钮重新开放（金句上传 / 意见收集 / Skill市场 / 插件市场 / 人设广场 / 打开网站）
+   1.0.7 及以前这里是一条 `#tabs .nav-spacer, #tabs .nav-btn { display: none !important; }`
+   把所有按钮整排藏掉了。1.0.8 起恢复显示，并按主题重新做了一轮适配：
+   - 页签太多时允许整条横向滚动而不是把按钮挤成两行（#tabs 已 overflow-x:auto）
+   - 按钮改用胶囊底 + 玫瑰金描边，与 .tab 的织带背景区分开
+   - 「打开网站！」保持实心玫瑰金作为唯一主行动按钮
+   - 窄屏（≤1180px）收窄内边距、≤980px 允许换行，避免压住左侧品牌区 */
+#tabs .nav-spacer { display: block; flex: 1 1 auto; min-width: 8px; }
+#tabs .nav-btn { display: inline-flex; align-items: center; justify-content: center; }
+#tabs .nav-btn.hidden { display: none !important; }
+
+/* 按钮之间留出呼吸，避免和页签视觉粘连 */
+#tabs .nav-btn + .nav-btn { margin-left: 6px; }
+
+.nav-btn {
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  background: rgba(23, 11, 32, .42);
+  border: 1px solid rgba(255, 158, 205, .34);
+  color: #f2cfe1;
+  text-shadow: 0 1px 4px rgba(10, 4, 16, .55);
+  box-shadow: 0 2px 8px rgba(10, 4, 16, .22), inset 0 1px 0 rgba(255, 217, 234, .07);
+  transition: background .2s ease, border-color .2s ease, color .2s ease,
+              box-shadow .24s ease, transform .24s var(--ely-curve);
+}
+.nav-btn:hover {
+  background: rgba(248, 246, 240, .14);
+  border-color: var(--ely-rose-gold);
+  color: var(--ely-porcelain);
+  box-shadow: 0 3px 14px rgba(242, 166, 200, .3), inset 0 1px 0 rgba(255, 217, 234, .16);
+  transform: translateY(-1px);
+}
+.nav-btn:active { transform: translateY(0); }
+
+/* 市场类（Skill 市场 / 插件市场）：玫瑰金描边，透明底 */
+.nav-btn.nav-btn-market {
+  color: var(--ely-rose-gold-soft);
+  border-color: rgba(255, 158, 205, .52);
+  background: rgba(255, 158, 205, .08);
+}
+.nav-btn.nav-btn-market:hover {
+  color: #fff;
+  background: rgba(255, 158, 205, .18);
+  border-color: var(--ely-rose-gold);
+}
+
+/* 人设广场：薰衣草紫，与市场类区分 */
+.nav-btn.nav-btn-persona {
+  color: #e3c6f5;
+  border-color: rgba(196, 150, 240, .5);
+  background: rgba(196, 150, 240, .1);
+}
+.nav-btn.nav-btn-persona:hover {
+  color: #f6eaff;
+  background: rgba(196, 150, 240, .2);
+  border-color: rgba(214, 176, 250, .85);
+}
+
+/* 「打开网站！」：唯一实心主行动按钮 */
+.nav-btn.nav-btn-hot {
+  background: linear-gradient(180deg, var(--ely-rose-gold-soft), #c76f9f);
+  border-color: rgba(255, 217, 234, .9);
+  color: #2a1030;
+  text-shadow: none;
+  box-shadow: 0 3px 14px rgba(255, 158, 205, .38), inset 0 1px 0 rgba(255, 255, 255, .4);
+}
+.nav-btn.nav-btn-hot:hover {
+  filter: brightness(1.07);
+  color: #2a1030;
+  box-shadow: 0 4px 18px rgba(255, 158, 205, .5), inset 0 1px 0 rgba(255, 255, 255, .5);
+  transform: translateY(-1px);
+}
+
+/* 「确认金句」编辑态按钮：勾选模式下出现在最左，需要更醒目的进行中状态 */
+.nav-btn#quote-confirm-btn {
+  color: #fff;
+  background: rgba(255, 158, 205, .28);
+  border-color: var(--ely-rose-gold);
+  box-shadow: 0 0 12px rgba(242, 166, 200, .45);
+}
+
+/* 窄屏适配：先收内边距，再允许换行，避免把布局顶破 */
+@media (max-width: 1180px) {
+  #tabs { gap: 0; }
+  .tab { padding: 0 9px; }
+  .nav-btn { height: 26px; padding: 0 10px; font-size: 11.5px; }
+  #tabs .nav-btn + .nav-btn { margin-left: 4px; }
+}
+@media (max-width: 980px) {
+  #tabs {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 56px;
+    row-gap: 6px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  #tabs .nav-spacer { flex-basis: 100%; height: 0; }
+  #tabs .nav-spacer + .nav-btn { margin-left: 0; }
+}
+
+/* ══ 13.6 全局立绘（fixed 可拖拽）＋ 小人复位按钮 ══ */
+.ely-fig-global {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  top: auto;
+  height: 150px;
+  z-index: 9998;
+  pointer-events: none;
+}
+.ely-fig-global .ely-fig { pointer-events: auto; }
+#ely-fig-reset-btn { margin-left: 4px; }
+#ely-fig-reset-btn:hover { filter: brightness(1.08); }
+
+/* ══ 壁纸自定义对话框 ══ */
+.ely-wallpaper-modal {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(15, 6, 24, .55);
+  backdrop-filter: blur(6px);
+}
+.ely-wallpaper-box {
+  width: 520px; max-width: 92vw; max-height: 86vh; overflow: auto;
+  background: linear-gradient(180deg, rgba(42, 20, 60, .92), rgba(26, 11, 38, .95));
+  border: 1px solid rgba(242, 166, 200, .35);
+  border-radius: 16px;
+  box-shadow: 0 18px 60px rgba(10, 4, 16, .6);
+  color: #efc4dc;
+  font-size: 13px;
+}
+.ely-wallpaper-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 15px; font-weight: 600; color: #ffd9ea;
+  border-bottom: 1px solid rgba(242, 166, 200, .25);
+}
+.ely-wallpaper-close {
+  background: none; border: none; color: #efc4dc; font-size: 18px; cursor: pointer;
+  padding: 0 4px;
+}
+.ely-wallpaper-close:hover { color: #ffd9ea; }
+.ely-wallpaper-row {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(242, 166, 200, .15);
+}
+.ely-wallpaper-row:last-child { border-bottom: none; }
+.ely-wallpaper-label { font-weight: 600; margin-bottom: 8px; }
+.ely-wallpaper-file {
+  color: #efc4dc; font-size: 12px;
+  width: 100%;
+}
+.ely-wallpaper-preview {
+  margin: 8px 0; min-height: 40px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+}
+.ely-wallpaper-preview img,
+.ely-wallpaper-preview video {
+  max-width: 100%; max-height: 130px; border-radius: 8px;
+  border: 1px solid rgba(242, 166, 200, .3);
+}
+.ely-wallpaper-size { font-size: 12px; color: rgba(239, 196, 220, .85); }
+.ely-wallpaper-none { color: rgba(239, 196, 220, .6); }
+.ely-wallpaper-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ely-wallpaper-apply, .ely-wallpaper-reset, .ely-wallpaper-compress {
+  padding: 5px 14px; border-radius: 99px; cursor: pointer; font-size: 12px;
+  border: 1px solid rgba(242, 166, 200, .45);
+}
+.ely-wallpaper-actions button:disabled {
+  opacity: .4; cursor: not-allowed; filter: saturate(.5);
+}
+.ely-wallpaper-apply {
+  background: linear-gradient(180deg, #f7a8cd, #e070a8);
+  color: #2a0d24; font-weight: 600;
+}
+.ely-wallpaper-reset, .ely-wallpaper-compress { background: rgba(23, 11, 32, .6); color: #efc4dc; }
+.ely-wallpaper-apply:hover { filter: brightness(1.1); }
+.ely-wallpaper-reset:hover, .ely-wallpaper-compress:hover { border-color: rgba(255, 158, 205, .7); }
+.ely-wallpaper-compress:disabled { opacity: .55; cursor: not-allowed; }
+
+/* 压缩提示框：浮在壁纸自定义窗口上方（页面顶部居中，层级高于模态框），自动消失 */
+.ely-wp-toast {
+  position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
+  z-index: 100000;
+  background: linear-gradient(180deg, rgba(42, 20, 60, .96), rgba(26, 11, 38, .97));
+  border: 1px solid rgba(242, 166, 200, .5);
+  color: #ffd9ea; font-size: 13px;
+  padding: 10px 20px; border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(10, 4, 16, .55);
+  pointer-events: none;
+  max-width: 78vw; text-align: center;
+}
+
+/* 压缩档位选择弹窗（复用壁纸对话框外壳） */
+.ely-compress-body { padding: 12px 16px 4px; }
+.ely-compress-info { font-size: 12px; color: rgba(239, 196, 220, .8); margin-bottom: 10px; }
+.ely-compress-tip { font-size: 11px; color: rgba(239, 196, 220, .6); margin-bottom: 8px; }
+.ely-compress-opts { display: flex; flex-direction: column; gap: 6px; }
+.ely-compress-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px; border-radius: 10px; cursor: pointer;
+  border: 1px solid rgba(242, 166, 200, .25);
+}
+.ely-compress-opt:hover { border-color: rgba(255, 158, 205, .7); }
+.ely-compress-opt input { accent-color: #e070a8; cursor: pointer; }
+.ely-compress-est { margin-left: auto; font-size: 12px; color: rgba(239, 196, 220, .85); white-space: nowrap; }
+.ely-compress-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 8px 16px 14px;
+}
+.ely-compress-cancel, .ely-compress-ok {
+  padding: 6px 16px; border-radius: 99px; cursor: pointer; font-size: 12px;
+  border: 1px solid rgba(242, 166, 200, .45);
+}
+.ely-compress-cancel { background: rgba(23, 11, 32, .6); color: #efc4dc; }
+.ely-compress-cancel:hover { border-color: rgba(255, 158, 205, .7); }
+.ely-compress-ok {
+  background: linear-gradient(180deg, #f7a8cd, #e070a8);
+  color: #2a0d24; font-weight: 600;
+}
+.ely-compress-ok:hover { filter: brightness(1.1); }
+
+/* 会话左栏头部按钮（群发/清空/小人复位/壁纸自定义）
+   原来写的是 flex-shrink:0 + min-width:max-content，四个按钮加起来约 268px，
+   比默认左栏 264px 还宽 —— 在本机只是探出去一点，一旦窗口更窄或系统缩放更大
+   （实测对方 1.2 倍时按钮高 29px、总宽 323px）就直接压到会话列表上。
+   改成：允许换行 + 允许收缩 + 省略号兜底，任何宽度都不会溢出。 */
+.list-head {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  column-gap: 5px;
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+#session-broadcast-btn,
+#session-clear-btn,
+#ely-fig-reset-btn,
+#ely-wallpaper-btn {
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+/* 极窄时再压一档字号，保证四个按钮尽量能挤在同一行 */
+@media (max-width: 300px) {
+  #session-broadcast-btn,
+  #session-clear-btn,
+  #ely-fig-reset-btn,
+  #ely-wallpaper-btn {
+    font-size: 10.5px;
+    padding-left: 6px;
+    padding-right: 6px;
+    letter-spacing: 0;
+  }
+}
+/* 详情卡头部总计（粉色高亮） */
+.ely-card-total { color: #ffd2ea; font-weight: 600; }
+/* 执行轨迹每步的 meta（时间/tok/费用）第二行 */
+.ely-trace-meta {
+  margin: 0 0 5px 23px;
+  font-size: 10.5px;
+  color: #9f7fae;
+  font-variant-numeric: tabular-nums;
+}
+/* 调用工具卡合计行（tok费用 + 绘图费用 = 总费用） */
+.ely-tool-fee-total {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffd2ea;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 绘图价格设置：文生图 / 图生图双区 */
+.ely-price-group { background: rgba(255, 158, 205, 0.07); border: 1px solid rgba(255, 158, 205, 0.2); border-radius: 10px; padding: 8px 10px; margin-bottom: 10px; }
+.ely-price-gtitle { font-size: 12px; font-weight: 700; color: #ffc9e6; margin-bottom: 6px; }
+.ely-price-gtitle .ely-price-hint { font-size: 10px; color: #a486b8; font-weight: 400; margin-left: 6px; }
+.ely-price-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #d6b3e0; flex-wrap: wrap; }
+.ely-price-row input { width: 76px; padding: 4px 6px; border-radius: 8px; border: 1px solid rgba(255, 158, 205, 0.35); background: rgba(255, 255, 255, 0.07); color: #ffe1f2; font-size: 12px; }
+.ely-price-sum { font-size: 11px; color: #c69ade; margin: 6px 0 10px; line-height: 1.6; }
+.ely-price-sum span { background: rgba(255, 158, 205, 0.12); padding: 1px 6px; border-radius: 8px; margin-right: 6px; }
+.ely-price-btns { display: flex; gap: 8px; }
+.ely-price-btns button { flex: 1; padding: 6px; border-radius: 8px; border: 1px solid rgba(255, 158, 205, 0.4); background: rgba(255, 158, 205, 0.18); color: #fff; font-size: 12px; cursor: pointer; }
+.ely-price-btns button:hover { background: rgba(255, 158, 205, 0.32); }
+
+.ely-price-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #d6b3e0; margin-bottom: 10px; cursor: pointer; }
+.ely-price-check input[type=checkbox] { width: auto; margin: 0; accent-color: #e8a0c8; cursor: pointer; }
+
+
+/* ══ 16. 白天壁纸可读性修复（2026-10-06） ══ */
+
+/* 1) 工具展开面板（.tool-args/.tool-result）：应用原生 .collapsible.tool-flow 前缀特异性更高，
+      这里用同级/更高特异性 + !important 强制覆盖成深紫半透明亚克力，背景宫殿透出，文字改浅粉 */
+[data-theme='light'] .collapsible.tool-flow .tool-args,
+[data-theme='light'] .collapsible.tool-flow .tool-result,
+[data-theme='dark'] .collapsible.tool-flow .tool-args,
+[data-theme='dark'] .collapsible.tool-flow .tool-result {
+  background: rgba(26, 12, 40, 0.40) !important;
+  color: #e9c9e8 !important;
+  border-color: rgba(255, 183, 217, 0.20) !important;
+}
+
+/* 2) 详情面板白天背景：粉白 .22 → 粉调 .18（降白感、透出壁纸），文字仍走应用浅底深字 */
+[data-theme='light'] .detail-pane:not(:has(.empty-hint)) {
+  background-color: rgba(244, 218, 238, 0.18);
+}
+
+/* 3) 插件页白天：rail/body 已是深色底但文字仍是应用白天深色 → 深底深字看不清。
+      局部覆盖为浅色文字变量 + 加深 rail/body 半透明底 */
+[data-theme='light'] .usage-pane.ely-master-host {
+  --tx: #fdeaf5;
+  --tx2: #e3b7cf;
+  --tx3: #bd92ab;
+}
+[data-theme='light'] .ely-master-rail {
+  background: linear-gradient(180deg, rgba(44, 20, 60, .55), rgba(12, 24, 52, .58));
+}
+[data-theme='light'] .ely-master-body {
+  background: linear-gradient(180deg, rgba(14, 22, 48, .52), rgba(8, 14, 36, .54));
+}
+[data-theme='light'] .ely-rail-cat,
+[data-theme='light'] .ely-rail-cat:hover {
+  color: #ffd9ea;
+}
+[data-theme='light'] .ely-rail-item {
+  color: #fdeaf5;
+}
+[data-theme='light'] .ely-master-body .mcard-desc,
+[data-theme='light'] .ely-master-body .mcard-tool-id {
+  color: #e3b7cf;
+}
+
+/* 4) 右上角社区/市场按钮白天适配：白天页签条是浅底，深紫底 + 浅粉字会发灰，
+      改成半透明白玻璃底，文字加深到玫瑰紫，保证在浅壁纸上仍然清晰 */
+[data-theme='light'] .nav-btn {
+  background: rgba(255, 255, 255, .42);
+  border-color: rgba(199, 111, 159, .42);
+  color: #8a3f66;
+  text-shadow: none;
+  box-shadow: 0 2px 8px rgba(120, 60, 95, .12), inset 0 1px 0 rgba(255, 255, 255, .6);
+}
+[data-theme='light'] .nav-btn:hover {
+  background: rgba(255, 255, 255, .68);
+  border-color: #c76f9f;
+  color: #5d2242;
+  box-shadow: 0 3px 14px rgba(199, 111, 159, .28), inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+[data-theme='light'] .nav-btn.nav-btn-market {
+  background: rgba(255, 158, 205, .18);
+  border-color: rgba(199, 111, 159, .52);
+  color: #a8457a;
+}
+[data-theme='light'] .nav-btn.nav-btn-market:hover {
+  background: rgba(255, 158, 205, .32);
+  border-color: #c76f9f;
+  color: #7a2a55;
+}
+[data-theme='light'] .nav-btn.nav-btn-persona {
+  background: rgba(196, 150, 240, .18);
+  border-color: rgba(150, 100, 200, .5);
+  color: #6f3f9e;
+}
+[data-theme='light'] .nav-btn.nav-btn-persona:hover {
+  background: rgba(196, 150, 240, .32);
+  border-color: rgba(150, 100, 200, .75);
+  color: #4d2673;
+}
+/* 「打开网站！」保持实心，只在白天降低一点亮度免得在白底上刺眼 */
+[data-theme='light'] .nav-btn.nav-btn-hot {
+  background: linear-gradient(180deg, #ff9ecd, #c76f9f);
+  border-color: rgba(199, 111, 159, .9);
+  color: #2a1030;
+  text-shadow: none;
+}
+[data-theme='light'] .nav-btn#quote-confirm-btn {
+  background: rgba(199, 111, 159, .85);
+  border-color: #c76f9f;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(199, 111, 159, .4);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   人设管理注入（2026-10-20 / 1.0.10）
+
+   主程序的人设列表行只支持「点击选用」，主题在行尾补一排 ✎ 修改 / 🗑 删除。
+   配色跟着爱莉希雅走：粉色描边、浅底、hover 才点亮，避免抢了主题整体的淡雅感。
+   默认人设（小鲸鱼）整行加锁：名字降权 + 左侧锁标记，两个按钮都是 disabled。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 行内操作区：默认半透明，hover 或聚焦时才完全显现（与主程序 .ely-persona-ops 同节奏） */
+.ely-persona-ops {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  opacity: .5;
+  transition: opacity .15s ease;
+}
+.mm-model:hover > .ely-persona-ops,
+.mm-model:focus-within > .ely-persona-ops { opacity: 1; }
+
+.ely-pn-btn {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 2px 9px;
+  cursor: pointer;
+  color: var(--ely-ink, #6b4b58);
+  background: rgba(255, 255, 255, .55);
+  border: 1px solid rgba(214, 150, 180, .55);
+  border-radius: 999px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.ely-pn-btn:hover:not(:disabled) {
+  background: rgba(255, 226, 240, .95);
+  border-color: rgba(199, 111, 159, .85);
+  color: #a8456f;
+}
+.ely-pn-btn:active:not(:disabled) { transform: translateY(1px); }
+.ely-pn-btn:disabled {
+  opacity: .34;
+  cursor: not-allowed;
+  background: transparent;
+  border-color: rgba(180, 170, 175, .4);
+}
+.ely-pn-danger:hover:not(:disabled) {
+  background: rgba(255, 216, 222, .95);
+  border-color: rgba(214, 92, 112, .85);
+  color: #b8445a;
+}
+
+/* 默认人设行：整行降权 + 锁标记（行本身仍可点击 = 选用） */
+.mm-model.is-locked { position: relative; }
+.mm-model.is-locked > .ely-persona-name { color: #9992a0; }
+.mm-model.is-locked::before {
+  content: '🔒';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  opacity: .5;
+  pointer-events: none;
+}
+
+/* ── 兜底弹窗（主程序模态框不可用时由主题自绘） ── */
+.ely-dlg-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(46, 32, 40, .42);
+  backdrop-filter: blur(2px);
+  animation: elyDlgFade .16s ease;
+}
+@keyframes elyDlgFade { from { opacity: 0; } to { opacity: 1; } }
+
+.ely-dlg {
+  width: min(560px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: #fffafc;
+  border: 1px solid rgba(214, 150, 180, .55);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(88, 52, 70, .28);
+  overflow: hidden;
+}
+.ely-dlg-head {
+  padding: 13px 18px;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #7a4659;
+  border-bottom: 1px solid rgba(214, 150, 180, .35);
+  background: linear-gradient(180deg, rgba(255, 232, 242, .9), rgba(255, 250, 252, .6));
+}
+.ely-dlg-body {
+  padding: 14px 18px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ely-dlg-text { font-size: 13px; line-height: 1.7; color: #5f4a53; }
+.ely-dlg-field { display: flex; flex-direction: column; gap: 5px; }
+.ely-dlg-field > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8a6675;
+}
+.ely-dlg-field input[type='text'],
+.ely-dlg-field textarea {
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.65;
+  padding: 8px 10px;
+  color: #4d3a43;
+  background: #fff;
+  border: 1px solid rgba(190, 160, 172, .6);
+  border-radius: 9px;
+  outline: none;
+  resize: vertical;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.ely-dlg-field input[type='text']:focus,
+.ely-dlg-field textarea:focus {
+  border-color: rgba(199, 111, 159, .9);
+  box-shadow: 0 0 0 3px rgba(199, 111, 159, .14);
+}
+.ely-dlg-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #9a8790;
+}
+.ely-dlg-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 11px 18px;
+  border-top: 1px solid rgba(214, 150, 180, .35);
+  background: rgba(255, 246, 250, .7);
+}
+.ely-dlg-btn {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 16px;
+  cursor: pointer;
+  color: #6b4b58;
+  background: #fff;
+  border: 1px solid rgba(214, 150, 180, .6);
+  border-radius: 9px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.ely-dlg-btn:hover:not(:disabled) {
+  background: rgba(255, 232, 242, .95);
+  border-color: rgba(199, 111, 159, .85);
+}
+.ely-dlg-btn:disabled { opacity: .5; cursor: progress; }
+.ely-dlg-primary {
+  color: #fff;
+  background: rgba(199, 111, 159, .92);
+  border-color: rgba(199, 111, 159, .92);
+}
+.ely-dlg-primary:hover:not(:disabled) { background: #b95f8b; }
+.ely-dlg-danger {
+  color: #b8445a;
+  border-color: rgba(214, 92, 112, .7);
+}
+.ely-dlg-danger:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(214, 92, 112, .92);
+  border-color: rgba(214, 92, 112, .92);
+}
+
+/* 轻提示浮条 */
+.ely-persona-tip {
+  position: fixed;
+  left: 50%;
+  bottom: 42px;
+  transform: translate(-50%, 12px);
+  z-index: 9100;
+  padding: 8px 18px;
+  font-size: 12.5px;
+  color: #fff;
+  background: rgba(122, 70, 89, .95);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(88, 52, 70, .3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.ely-persona-tip.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* 深色主题下换一套底色，避免白卡扎眼 */
+[data-theme='dark'] .ely-dlg {
+  background: #2b2026;
+  border-color: rgba(199, 111, 159, .45);
+}
+[data-theme='dark'] .ely-dlg-head {
+  color: #e8c3d5;
+  background: linear-gradient(180deg, rgba(74, 44, 58, .95), rgba(43, 32, 38, .7));
+  border-bottom-color: rgba(199, 111, 159, .35);
+}
+[data-theme='dark'] .ely-dlg-text { color: #d6c2cc; }
+[data-theme='dark'] .ely-dlg-field > label { color: #c9a3b5; }
+[data-theme='dark'] .ely-dlg-field input[type='text'],
+[data-theme='dark'] .ely-dlg-field textarea {
+  color: #ecdde5;
+  background: #35272e;
+  border-color: rgba(199, 111, 159, .4);
+}
+[data-theme='dark'] .ely-dlg-hint { color: #a48e9a; }
+[data-theme='dark'] .ely-dlg-foot {
+  background: rgba(52, 38, 46, .8);
+  border-top-color: rgba(199, 111, 159, .3);
+}
+[data-theme='dark'] .ely-dlg-btn {
+  color: #dcc7d2;
+  background: #3a2b33;
+  border-color: rgba(199, 111, 159, .45);
+}
+[data-theme='dark'] .ely-pn-btn {
+  color: #dcc7d2;
+  background: rgba(58, 43, 51, .8);
+  border-color: rgba(199, 111, 159, .45);
+}
+[data-theme='dark'] .mm-model.is-locked > .ely-persona-name { color: #8b7b84; }
+
+
+/* ── 主题自绘的人设列表（openElyPersonaList）── */
+.ely-pn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 52vh;
+  overflow: auto;
+  padding: 2px;
+}
+.ely-pn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--ely-ink, #57273f);
+  background: rgba(255, 255, 255, .5);
+  border: 1px solid transparent;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background .14s ease, border-color .14s ease;
+}
+.ely-pn-row:hover {
+  background: rgba(255, 232, 242, .9);
+  border-color: rgba(214, 150, 180, .55);
+}
+.ely-pn-row.is-checked {
+  background: rgba(255, 214, 234, .85);
+  border-color: rgba(199, 111, 159, .7);
+}
+.ely-pn-check {
+  flex: 0 0 14px;
+  font-size: 11px;
+  color: #b95f8b;
+  text-align: center;
+}
+.ely-pn-row > .ely-persona-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.ely-pn-tag {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  color: #96808b;
+  background: rgba(190, 160, 172, .16);
+  border-radius: 999px;
+}
+.ely-pn-row.is-locked > .ely-persona-name { color: #9992a0; }
+.ely-pn-row.is-locked > .ely-persona-name::before {
+  content: '🔒';
+  margin-right: 4px;
+  font-size: 10px;
+  opacity: .55;
+}
+.ely-pn-row.is-locked { cursor: pointer; }
+.ely-pn-row.is-checked > .ely-pn-tag { color: #8a4c66; background: rgba(199, 111, 159, .18); }
+
+[data-theme='dark'] .ely-pn-row {
+  color: #e6d3dc;
+  background: rgba(58, 43, 51, .6);
+}
+[data-theme='dark'] .ely-pn-row:hover {
+  background: rgba(84, 55, 70, .85);
+  border-color: rgba(199, 111, 159, .5);
+}
+[data-theme='dark'] .ely-pn-row.is-checked {
+  background: rgba(104, 62, 81, .9);
+  border-color: rgba(199, 111, 159, .8);
+}
+[data-theme='dark'] .ely-pn-tag {
+  color: #a48e9a;
+  background: rgba(199, 111, 159, .14);
+}
+
+/* ===== 分群模式人设管理按钮排（爱莉希雅主题 · 1.0.11） =====
+   背景：用户关闭「为所有的群聊/私聊使用同一个人设」时，主程序隐藏
+   #persona-unified-box，只留 #persona-perchat-box（实测高 76px、宽 932px，
+   只装得下原生的「⚙ 全局人设设置」一个按钮）。这里另起一行，自带 wrap，
+   并把按钮做紧凑，避免溢出到右侧不可见区域。 */
+.ely-pc-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 12px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(242, 166, 200, .10);
+  border: 1px solid rgba(242, 166, 200, .28);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28);
+}
+.ely-pc-btn.btn {
+  height: 28px;
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 26px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, .62);
+  border: 1px solid rgba(214, 120, 163, .42);
+  color: var(--ely-ink, #57273f);
+  transition: transform .14s ease, box-shadow .18s ease, background .18s ease;
+}
+.ely-pc-btn.btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .86);
+  border-color: rgba(214, 120, 163, .72);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(214, 120, 163, .26);
+}
+.ely-pc-btn.btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+.ely-pc-btn.btn:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+  filter: grayscale(.3);
+}
+#ely-pc-del-btn.btn {
+  border-color: rgba(196, 88, 118, .5);
+  color: #8d2f4c;
+}
+#ely-pc-del-btn.btn:hover:not(:disabled) {
+  background: rgba(255, 226, 234, .9);
+  border-color: rgba(196, 88, 118, .78);
+  box-shadow: 0 4px 12px rgba(196, 88, 118, .24);
+}
+#ely-pc-pick-btn.btn {
+  border-color: rgba(150, 120, 214, .42);
+}
+[data-theme='dark'] .ely-pc-bar {
+  background: rgba(242, 166, 200, .08);
+  border-color: rgba(242, 166, 200, .22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06);
+}
+[data-theme='dark'] .ely-pc-btn.btn {
+  background: rgba(52, 32, 45, .72);
+  border-color: rgba(199, 111, 159, .42);
+  color: #f0d7e4;
+}
+[data-theme='dark'] .ely-pc-btn.btn:hover:not(:disabled) {
+  background: rgba(74, 45, 62, .9);
+  border-color: rgba(222, 138, 178, .7);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .38);
+}
+[data-theme='dark'] #ely-pc-del-btn.btn {
+  border-color: rgba(212, 108, 136, .5);
+  color: #f3c3ce;
+}
+[data-theme='light'] .ely-pc-bar {
+  background: rgba(255, 236, 244, .62);
+  border-color: rgba(214, 120, 163, .34);
+}
+[data-theme='light'] .ely-pc-btn.btn {
+  background: rgba(255, 255, 255, .78);
+  color: #8a3f66;
+}
+@media (max-width: 980px) {
+  .ely-pc-bar { gap: 6px; padding: 8px 10px; }
+  .ely-pc-btn.btn { height: 26px; min-height: 26px; font-size: 11.5px; padding: 0 10px; }
+}
